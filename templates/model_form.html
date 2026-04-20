@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ '编辑模型' if action == 'edit' else '添加模型' }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 30px; border-radius: 8px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: inline-block; width: 120px; font-weight: bold; }
+        input[type=text], input[type=password], input[type=number] { width: 400px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .btn { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        .flash { padding: 10px; margin-bottom: 20px; border-radius: 4px; }
+        .flash.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ '编辑模型' if action == 'edit' else '添加新模型' }}</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <form method="post">
+        <div class="form-group">
+            <label>模型名称:</label>
+            {% if action == 'edit' %}
+                <input type="text" name="name" value="{{ model.name }}" readonly style="background:#eee;">
+                <small>（名称不可修改）</small>
+            {% else %}
+                <input type="text" name="name" value="" required>
+            {% endif %}
+        </div>
+        <div class="form-group">
+            <label>API Base URL:</label>
+            <input type="text" name="api_base" value="{{ model.api_base if model else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label>API Key:</label>
+            <input type="password" name="api_key" value="{{ model.api_key if model else '' }}" required>
+        </div>
+        <div class="form-group">
+            <label>默认温度:</label>
+            <input type="number" step="0.1" name="default_temperature" value="{{ model.default_temperature if model else 0.7 }}" required>
+        </div>
+        <div class="form-group">
+            <label>超时 (秒):</label>
+            <input type="number" name="timeout" value="{{ model.timeout if model else 60 }}" required>
+        </div>
+        <button type="submit" class="btn">{{ '更新' if action == 'edit' else '添加' }}</button>
+        <a href="{{ url_for('admin') }}" style="margin-left: 20px;">返回列表</a>
+    </form>
+</div>
+</body>
+</html>

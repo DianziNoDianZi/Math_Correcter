@@ -1,0 +1,273 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+<div class="container mx-auto">
+  <div class="flex items-center justify-between mb-4">
+    <h1 class="text-2xl font-semibold">管理仪表盘</h1>
+    <div>
+      <a href="{{ url_for('chat_test') }}" class="bg-purple-500 hover:bg-purple-700 text-white px-4 py-2 rounded mr-2">对话测试</a>
+      <a href="{{ url_for('add_model') }}" class="bg-green-500 hover:bg-green-700 text-white px-4 py-2 rounded">添加模型</a>
+    </div>
+  </div>
+  <section class="bg-white rounded-lg shadow p-4 mb-4">
+    <h3 class="text-lg font-semibold mb-2">默认模型设置</h3>
+    <form action="/admin/set_default_models" method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold mb-1" for="vision_model">默认视觉模型</label>
+        <select name="vision_model" id="vision_model" class="border rounded w-full px-2 py-2">
+          {% for m in models %}
+          <option value="{{ m.name }}" {% if m.name == vision_model %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold mb-1" for="text_model">默认文本模型</label>
+        <select name="text_model" id="text_model" class="border rounded w-full px-2 py-2">
+          {% for m in models %}
+          <option value="{{ m.name }}" {% if m.name == text_model %}selected{% endif %}>{{ m.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="md:col-span-2" style="display:flex; justify-content:flex-end;">
+        <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">保存默认模型</button>
+      </div>
+    </form>
+  </section>
+  <section class="bg-white rounded-lg shadow p-4 mb-4 flex flex-wrap items-center gap-4">
+    <div><strong>默认视觉模型:</strong> <span class="ml-2">{{ vision_model }}</span></div>
+    <div><strong>默认文本模型:</strong> <span class="ml-2">{{ text_model }}</span></div>
+    <div><strong>全局默认模型:</strong> <span class="ml-2">{{ default_model }}</span></div>
+  </section>
+  <!-- 上传区域与实时数据区 -->
+  <section id="upload-section" class="bg-white rounded-lg shadow p-4 mb-4">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-lg font-semibold">上传图片</div>
+      <div class="text-sm text-gray-500" id="upload-status-label">就绪</div>
+    </div>
+    <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-lg p-6 flex items-center justify-center" style="min-height:120px; cursor:pointer;">
+      <span>将图片拖拽到这里，或点击选择文件</span>
+      <input id="upload-input" type="file" accept="image/*" style="display:none" />
+    </div>
+    <div id="upload-preview" class="mt-3 hidden flex items-center gap-3">
+      <img id="upload-preview-img" src="#" alt="预览" style="max-width:180px; max-height:180px; border:1px solid #ddd; padding:4px; border-radius:6px;"/>
+      <div>
+        <div class="text-sm text-gray-700">查询码</div>
+        <input id="upload-query-code" type="text" readonly class="border rounded px-2 py-1" style="min-width:340px"/>
+        <button id="upload-copy" class="ml-2 px-3 py-1 bg-gray-200 rounded">复制</button>
+      </div>
+    </div>
+  </section>
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="text-xs font-semibold text-gray-500">Pending</div>
+      <div id="summary-pending" class="text-2xl font-bold">{{ summary.pending }}</div>
+      <a href="/admin/api/tasks" class="text-blue-600 text-sm">查看任务队列</a>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="text-xs font-semibold text-gray-500">Processing</div>
+      <div id="summary-processing" class="text-2xl font-bold">{{ summary.processing }}</div>
+      <span class="text-sm text-gray-500">处理中任务</span>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="text-xs font-semibold text-gray-500">Completed</div>
+      <div id="summary-completed" class="text-2xl font-bold">{{ summary.completed }}</div>
+      <span class="text-sm text-gray-500">已完成</span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6" id="dashboard-content">
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-gray-500">模型概览</div>
+        <div class="text-xs text-gray-500">总数: {{ models|length }}, 默认: {{ default_model }}</div>
+      </div>
+      <table class="w-full text-sm text-left text-gray-600">
+        <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+          <tr><th class="px-2 py-2">名称</th><th>Base</th><th>温度</th><th>超时</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          {% for m in models %}
+          <tr class="border-t">
+            <td class="px-2 py-2">
+              {{ m.name }}
+              {% if m.name == default_model %} <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 ml-2 rounded-full">默认</span>{% endif %}
+              {% if m.name == vision_model %} <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-1 ml-2 rounded-full">默认视觉</span>{% endif %}
+              {% if m.name == text_model %} <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-1 ml-2 rounded-full">默认文本</span>{% endif %}
+            </td>
+            <td class="px-2 py-2" style="word-break: break-all">{{ m.api_base }}</td>
+            <td class="px-2 py-2">{{ m.default_temperature }}</td>
+            <td class="px-2 py-2">{{ m.timeout }}</td>
+            <td class="px-2 py-2">
+              <a href="/admin/models/edit/{{ m.name }}" class="text-blue-600 mr-2">编辑</a>
+              <form action="/admin/models/test/{{ m.name }}" method="POST" class="inline">
+                <button type="submit" class="text-purple-600 mr-2">测试</button>
+              </form>
+              {% if m.name != default_model %}
+              <form action="/admin/models/set_default/{{ m.name }}" method="POST" class="inline">
+                <button type="submit" class="text-green-600 mr-2">设为默认</button>
+              </form>
+              <form action="/admin/models/delete/{{ m.name }}" method="POST" class="inline" onsubmit="return confirm('确定要删除模型 {{ m.name }} 吗？')">
+                <button type="submit" class="text-red-600">删除</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-gray-500">快速操作</div>
+      </div>
+      <form action="/admin/pause_processing" method="POST" class="inline-block mr-2">
+        <button class="bg-yellow-500 text-white px-4 py-2 rounded">暂停处理</button>
+      </form>
+      <form action="/admin/resume_processing" method="POST" class="inline-block mr-2">
+        <button class="bg-green-500 text-white px-4 py-2 rounded">恢复处理</button>
+      </form>
+      <form action="/admin/cancel_task" method="POST" class="inline-block mt-2" onsubmit="return confirm('请输入查询码以取消任务')">
+        <input name="query_code" placeholder="查询码" required style="padding:6px; border:1px solid #ddd; border-radius:4px"/>
+        <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded ml-2">取消任务</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-gray-500">最近结果</div>
+      </div>
+      <ul class="divide-y divide-gray-100">
+        {% for r in recent_results %}
+        <li class="py-2">{{ r.code }} - {{ r.time }} - {{ r.preview }}</li>
+        {% else %}
+        <li class="py-2 text-gray-500">暂无结果</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4">
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm font-semibold text-gray-500">任务队列（简览）</div>
+      </div>
+      <table class="w-full text-sm text-left text-gray-600">
+        <thead class="text-xs text-gray-500 uppercase bg-gray-50"><tr><th class="px-2 py-2">优先级</th><th>查询码</th><th>状态</th></tr></thead>
+        <tbody id="tasks-tbody">
+          {% for t in tasks %}
+          <tr class="border-t"><td class="px-2 py-2">{{ t.priority }}</td><td class="px-2 py-2">{{ t.code }}</td><td class="px-2 py-2">{{ t.status }}</td></tr>
+          {% endfor %}
+          {% if not tasks %}<tr><td colspan="3" class="px-2 py-2 text-gray-500">无任务</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  
+  </div>
+  
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Upload area handlers
+    const uploadArea = document.getElementById('upload-area');
+    const uploadInput = document.getElementById('upload-input');
+    const preview = document.getElementById('upload-preview');
+    const previewImg = document.getElementById('upload-preview-img');
+    const queryCodeInput = document.getElementById('upload-query-code');
+    const copyBtn = document.getElementById('upload-copy');
+    const statusLabel = document.getElementById('upload-status-label');
+
+    function triggerFileDialog() {
+      uploadInput.click();
+    }
+
+    function showFilePreview(dataUrl) {
+      previewImg.src = dataUrl;
+      preview.classList.remove('hidden');
+    }
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        showFilePreview(dataUrl);
+        uploadImage(dataUrl);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    uploadArea.addEventListener('click', triggerFileDialog);
+    uploadInput.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleFile(e.target.files[0]);
+      }
+    });
+    ['dragenter','dragover'].forEach(ev => uploadArea.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); }));
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+
+    async function uploadImage(dataURL) {
+      try {
+        statusLabel.textContent = '上传中...';
+        const resp = await fetch('/upload_image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image_data: dataURL, priority: 0 })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.query_code) {
+          queryCodeInput.value = data.query_code;
+          statusLabel.textContent = '上传成功';
+          showToast && showToast('图片上传成功，查询码已生成');
+        } else {
+          statusLabel.textContent = '上传失败';
+          showToast && showToast('上传失败，请重试');
+        }
+      } catch (err) {
+        statusLabel.textContent = '上传失败';
+        showToast && showToast('上传失败: ' + err.message);
+      }
+    }
+
+    copyBtn.addEventListener('click', () => {
+      if (queryCodeInput.value) {
+        navigator.clipboard.writeText(queryCodeInput.value).then(() => {
+          showToast('查询码已复制');
+        });
+      }
+    });
+
+    // 右上角 health/summary 自动刷新
+    async function refreshDashboard() {
+      try {
+        // Summary
+        const sum = await fetch('/admin/api/summary');
+        if (sum.ok) {
+          const s = await sum.json();
+          document.getElementById('summary-pending').textContent = s.pending;
+          document.getElementById('summary-processing').textContent = s.processing;
+          document.getElementById('summary-completed').textContent = s.completed;
+        }
+        // Tasks
+        const tasks = await fetch('/admin/api/tasks');
+        if (tasks.ok) {
+          const data = await tasks.json();
+          const tbody = document.querySelector('#tasks-tbody');
+          if (tbody) {
+            const rows = (data.tasks || []).map(t => {
+              return `<tr class="border-t"><td class="px-2 py-2">${t.priority}</td><td class="px-2 py-2">${t.code}</td><td class="px-2 py-2">${t.status}</td></tr>`;
+            }).join('');
+            tbody.innerHTML = rows || '<tr><td colspan="3" class="px-2 py-2 text-gray-500">无任务</td></tr>';
+          }
+        }
+      } catch (e) {
+        // Ignore transient errors
+        console.log('Dashboard refresh error', e);
+      }
+    }
+    setInterval(refreshDashboard, 10000);
+    refreshDashboard();
+  });
+  </script>
+{% endblock %}

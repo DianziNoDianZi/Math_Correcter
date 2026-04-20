@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理后台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <style>
+    .toast { position: fixed; right: 1rem; top: 1rem; z-index: 9999; }
+  </style>
+</head>
+<body class="bg-gray-100 text-gray-900">
+  <div id="toast-container" class="toast"></div>
+  <div class="min-h-screen flex">
+    <aside class="w-64 bg-white border-r p-4">
+      <div class="font-semibold text-xl mb-4">管理面板</div>
+      <nav class="space-y-2 text-sm">
+        <a href="/admin/dashboard" class="block py-2 px-3 rounded hover:bg-gray-100">仪表盘</a>
+        <a href="/admin" class="block py-2 px-3 rounded hover:bg-gray-100">模型管理</a>
+        <a href="/admin/logs" class="block py-2 px-3 rounded hover:bg-gray-100">运行日志</a>
+        <a href="/healthz" class="block py-2 px-3 rounded hover:bg-gray-100">健康检查</a>
+        <a href="/admin/logout" class="block py-2 px-3 rounded hover:bg-gray-100">退出登录</a>
+      </nav>
+    </aside>
+    <main class="flex-1 p-6">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script>
+    function showToast(message, duration = 4000) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const div = document.createElement('div');
+      div.textContent = message;
+      div.style.background = '#333';
+      div.style.color = '#fff';
+      div.style.padding = '8px 12px';
+      div.style.marginTop = '6px';
+      div.style.borderRadius = '4px';
+      div.style.boxShadow = '0 2px 6px rgba(0,0,0,.3)';
+      div.style.opacity = '0';
+      div.style.transition = 'opacity .3s';
+      container.appendChild(div);
+      requestAnimationFrame(() => { div.style.opacity = '1'; });
+      setTimeout(() => {
+        div.style.opacity = '0';
+        setTimeout(() => div.remove(), 300);
+      }, duration);
+    }
+  </script>
+</body>
+</html>
