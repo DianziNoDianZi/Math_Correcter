@@ -17,7 +17,13 @@ DEFAULT_CONFIG = {
     'default_model': '',
     'vision_model': '',
     'text_model': '',
-    'models': []
+    'models': [],
+    'customization': {
+        'bg_type': 'gradient',
+        'bg_color1': '#667eea',
+        'bg_color2': '#764ba2',
+        'bg_image': ''
+    }
 }
 
 # 全局配置对象与模型字典缓存
@@ -37,7 +43,8 @@ def _reload_config():
             'default_model': data.get('default_model', DEFAULT_CONFIG['default_model']),
             'vision_model': data.get('vision_model', DEFAULT_CONFIG['vision_model']),
             'text_model': data.get('text_model', DEFAULT_CONFIG['text_model']),
-            'models': data.get('models', [])
+            'models': data.get('models', []),
+            'customization': data.get('customization', DEFAULT_CONFIG.get('customization', {}))
         }
         # 兼容性：确保 models 字段存在
         if not isinstance(_config.get('models', []), list):

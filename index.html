@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数学作业智能批改助手</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 MathJax -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        /* 为代码块添加滚动条 */
+        pre {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        /* 为加载动画添加样式 */
+        .spinner {
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6">
+        <h1 class="text-3xl font-bold text-center text-blue-600 mb-8">数学作业智能批改助手</h1>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="imageInput">
+                选择包含数学题的图片
+            </label>
+            <input type="file" id="imageInput" accept="image/*" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+        </div>
+
+        <div class="flex items-center justify-between mb-8">
+            <button id="uploadBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                上传图片
+            </button>
+            <div id="uploadStatus" class="text-sm text-gray-500">就绪</div>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="queryCodeInput">
+                查询码
+            </label>
+            <div class="flex">
+                <input type="text" id="queryCodeInput" placeholder="上传后会自动生成查询码" readonly class="shadow appearance-none border rounded-l w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                <button id="copyCodeBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-r focus:outline-none focus:shadow-outline">
+                    复制
+                </button>
+            </div>
+        </div>
+
+        <div class="flex items-center justify-between mb-8">
+            <button id="queryBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                查询结果
+            </button>
+            <div id="queryStatus" class="text-sm text-gray-500">等待查询</div>
+        </div>
+
+        <div class="mt-8">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">批改结果</h2>
+            <div id="resultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px]">
+                <p class="text-gray-500 italic">结果将在这里显示...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SERVER_URL = 'http://localhost:8000'; // 服务端地址
+        let lastRequestTime = 0;
+        const BUTTON_COOLDOWN = 5000; // 5秒防抖
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const imageInput = document.getElementById('imageInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const queryCodeInput = document.getElementById('queryCodeInput');
+            const copyCodeBtn = document.getElementById('copyCodeBtn');
+            const queryBtn = document.getElementById('queryBtn');
+            const queryStatus = document.getElementById('queryStatus');
+            const resultDisplay = document.getElementById('resultDisplay');
+
+            // 上传图片
+            uploadBtn.addEventListener('click', async () => {
+                const file = imageInput.files[0];
+                if (!file) {
+                    alert('请选择一张图片！');
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const base64Image = event.target.result;
+
+                    try {
+                        uploadStatus.textContent = '正在上传...';
+                        uploadBtn.disabled = true;
+                        uploadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+                        const response = await fetch(`${SERVER_URL}/upload_image`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ image_data: base64Image })
+                        });
+
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! status: ${response.status}`);
+                        }
+
+                        const data = await response.json();
+                        const queryCode = data.query_code;
+
+                        queryCodeInput.value = queryCode;
+                        uploadStatus.textContent = `上传成功！查询码: ${queryCode.slice(0, 8)}...`;
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        uploadStatus.textContent = `上传失败: ${error.message}`;
+                    } finally {
+                        uploadBtn.disabled = false;
+                        uploadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+
+            // 复制查询码
+            copyCodeBtn.addEventListener('click', () => {
+                if (queryCodeInput.value) {
+                    navigator.clipboard.writeText(queryCodeInput.value).then(() => {
+                        alert('查询码已复制到剪贴板！');
+                    }).catch(err => {
+                        console.error('Failed to copy: ', err);
+                        alert('复制失败，请手动复制。');
+                    });
+                } else {
+                    alert('请先上传图片获取查询码。');
+                }
+            });
+
+            // 查询结果
+            queryBtn.addEventListener('click', async () => {
+                const currentTime = new Date().getTime();
+                if (currentTime - lastRequestTime < BUTTON_COOLDOWN) {
+                    const remainingTime = Math.ceil((BUTTON_COOLDOWN - (currentTime - lastRequestTime)) / 1000);
+                    queryStatus.textContent = `请稍候 ${remainingTime} 秒...`;
+                    return;
+                }
+                lastRequestTime = currentTime;
+
+                const queryCode = queryCodeInput.value.trim();
+                if (!queryCode) {
+                    alert('请输入查询码或先上传图片！');
+                    return;
+                }
+
+                try {
+                    queryStatus.innerHTML = '<span class="flex items-center"><span class="spinner inline-block w-4 h-4 border-2 border-blue-500 rounded-full mr-2"></span> 正在查询...</span>';
+                    queryBtn.disabled = true;
+                    queryBtn.classList.add('opacity-50', 'cursor-not-allowed');
+
+                    const response = await fetch(`${SERVER_URL}/query_status`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ query_code: queryCode })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    const status = data.status;
+                    const result = data.result;
+
+                    if (status === 'completed') {
+                        queryStatus.textContent = '查询完成';
+                        resultDisplay.innerHTML = `<pre class="whitespace-pre-wrap">${result}</pre>`;
+                        MathJax.typeset(); // 渲染LaTeX公式
+                    } else if (status === 'processing') {
+                        queryStatus.textContent = 'AI正在分析中，请稍后查询...';
+                        resultDisplay.innerHTML = '<p class="text-yellow-600">AI正在分析中，请稍后刷新或再次查询。</p>';
+                    } else if (status === 'pending') {
+                        queryStatus.textContent = '任务排队中，请稍后查询...';
+                        resultDisplay.innerHTML = '<p class="text-yellow-600">任务排队中，请稍后刷新或再次查询。</p>';
+                    } else {
+                        queryStatus.textContent = '未知状态';
+                        resultDisplay.innerHTML = `<p class="text-red-500">服务器返回未知状态: ${status}</p>`;
+                    }
+                } catch (error) {
+                    console.error('Query error:', error);
+                    queryStatus.textContent = `查询失败: ${error.message}`;
+                    resultDisplay.innerHTML = `<p class="text-red-500">查询失败: ${error.message}</p>`;
+                } finally {
+                    queryBtn.disabled = false;
+                    queryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
