@@ -10,20 +10,28 @@
     .toast { position: fixed; right: 1rem; top: 1rem; z-index: 9999; }
   </style>
 </head>
-<body class="bg-gray-100 text-gray-900">
+<body class="text-gray-900" 
+    {% if g.customization and g.customization.bg_type == 'image' and g.customization.bg_image %}
+    style="background: url('/static/bg/{{ g.customization.bg_image }}') no-repeat center center fixed; background-size: cover; min-height:100vh;"
+    {% elif g.customization %}
+    style="background: linear-gradient(135deg, {{ g.customization.bg_color1 }} 0%, {{ g.customization.bg_color2 }} 100%); min-height:100vh;"
+    {% else %}
+    class="bg-gray-100 text-gray-900"
+    {% endif %}>
   <div id="toast-container" class="toast"></div>
   <div class="min-h-screen flex">
     <aside class="w-64 bg-white border-r p-4">
       <div class="font-semibold text-xl mb-4">管理面板</div>
       <nav class="space-y-2 text-sm">
         <a href="/admin/dashboard" class="block py-2 px-3 rounded hover:bg-gray-100">仪表盘</a>
-        <a href="/admin" class="block py-2 px-3 rounded hover:bg-gray-100">模型管理</a>
+        <a href="/admin/models" class="block py-2 px-3 rounded hover:bg-gray-100">模型管理</a>
+        <a href="/admin/customization" class="block py-2 px-3 rounded hover:bg-gray-100">个性化设置</a>
         <a href="/admin/logs" class="block py-2 px-3 rounded hover:bg-gray-100">运行日志</a>
-        <a href="/healthz" class="block py-2 px-3 rounded hover:bg-gray-100">健康检查</a>
-        <a href="/admin/logout" class="block py-2 px-3 rounded hover:bg-gray-100">退出登录</a>
+        <a href="/admin/chat_test" class="block py-2 px-3 rounded hover:bg-gray-100">对话测试</a>
+        <a href="/admin/logout" class="block py-2 px-3 rounded hover:bg-gray-100 text-red-500">退出登录</a>
       </nav>
     </aside>
-    <main class="flex-1 p-6">
+    <main class="flex-1 p-6" style="opacity: {{ (g.customization.opacity / 100) if g.customization and g.customization.opacity else 1 }};">
       {% block content %}{% endblock %}
     </main>
   </div>

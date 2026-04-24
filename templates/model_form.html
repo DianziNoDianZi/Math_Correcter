@@ -52,6 +52,12 @@
             <label>超时 (秒):</label>
             <input type="number" name="timeout" value="{{ model.timeout if model else 60 }}" required>
         </div>
+        {% if action == 'add' %}
+        <div class="form-group">
+            <label>设为默认模型:</label>
+            <input type="checkbox" name="is_default">
+        </div>
+        {% endif %}
         <button type="submit" class="btn">{{ '更新' if action == 'edit' else '添加' }}</button>
         <a href="{{ url_for('admin') }}" style="margin-left: 20px;">返回列表</a>
     </form>

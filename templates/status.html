@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>服务端状态</title>
+  <style>body{font-family:Arial, sans-serif; padding:2rem;} .card{border:1px solid #ddd; padding:1rem; border-radius:6px; margin:1rem 0;}</style>
+</head>
+<body>
+  <h2>服务端状态</h2>
+  <div class="card">Pending: {{ pending }} 条</div>
+  <div class="card">Processing: {{ processing }} 条</div>
+  <div class="card">Completed: {{ completed }} 条</div>
+  <div class="card">Last Updated: {{ last_updated }} UTC</div>
+  <p><a href="/admin">返回管理面板</a></p>
+</body>
+</html>

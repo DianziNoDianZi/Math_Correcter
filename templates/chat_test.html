@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对话测试</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .result-box {
+            white-space: pre-wrap;
+            word-break: break-word;
+            background-color: #f9fafb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            min-height: 200px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">对话测试</h1>
+            <a href="/admin" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">返回管理</a>
+        </div>
+
+        <form id="chatForm" class="space-y-4">
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="model">选择模型</label>
+                <select name="model" id="model" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    {% for model in models %}
+                    <option value="{{ model.name }}">{{ model.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="prompt">提示词</label>
+                <textarea name="prompt" id="prompt" rows="5" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="输入您的消息..."></textarea>
+            </div>
+            <div>
+                <label class="block text-gray-700 text-sm font-bold mb-2" for="imageFile">图片（可选）</label>
+                <input type="file" id="imageFile" accept="image/*" class="shadow border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                <div id="imagePreview" class="mt-2 hidden">
+                    <img id="previewImg" class="max-h-48 rounded" alt="预览">
+                </div>
+            </div>
+            <div>
+                <button type="submit" id="sendBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">发送请求</button>
+                <span id="loading" class="ml-4 text-gray-500 hidden">处理中...</span>
+            </div>
+        </form>
+
+        <div class="mt-8">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">响应结果</h2>
+            <div id="result" class="result-box border border-gray-200">
+                <p class="text-gray-500 italic">等待测试...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('chatForm');
+        const sendBtn = document.getElementById('sendBtn');
+        const loading = document.getElementById('loading');
+        const resultDiv = document.getElementById('result');
+        const imageFileInput = document.getElementById('imageFile');
+        const imagePreview = document.getElementById('imagePreview');
+        const previewImg = document.getElementById('previewImg');
+
+        imageFileInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    previewImg.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                };
+                reader.readAsDataURL(this.files[0]);
+            } else {
+                imagePreview.classList.add('hidden');
+                previewImg.src = '';
+            }
+        });
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            sendBtn.disabled = true;
+            loading.classList.remove('hidden');
+            resultDiv.innerHTML = '<p class="text-gray-500 italic">请求发送中...</p>';
+
+            const model = document.getElementById('model').value;
+            const prompt = document.getElementById('prompt').value;
+            const imageFile = imageFileInput.files[0];
+
+            let imageData = null;
+            if (imageFile) {
+                const reader = new FileReader();
+                imageData = await new Promise((resolve) => {
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(imageFile);
+                });
+            }
+
+            try {
+                const response = await fetch('/chat_test_api', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: model,
+                        prompt: prompt,
+                        image_data: imageData
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    resultDiv.innerHTML = `<div class="whitespace-pre-wrap">${escapeHtml(data.response)}</div>`;
+                } else {
+                    resultDiv.innerHTML = `<div class="text-red-600">错误: ${escapeHtml(data.error)}</div>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="text-red-600">请求失败: ${escapeHtml(error.message)}</div>`;
+            } finally {
+                sendBtn.disabled = false;
+                loading.classList.add('hidden');
+            }
+        });
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+    </script>
+</body>
+</html>

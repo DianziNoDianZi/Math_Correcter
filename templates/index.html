@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数学作业智能批改助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        window.MathJax = {
+            loader: { load: ['input/tex', 'output/chtml'] },
+            chtml: { fontURL: '/static/output/chtml/fonts/woff-v2' },
+            startup: { typeset: false },
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script src="/static/tex-chtml.js" id="MathJax-script" async></script>
+    <style>
+        .result-content {
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-family: monospace;
+            background-color: #f9fafb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin: 0;
+        }
+        .spinner {
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4" 
+    {% if g.customization.bg_type == 'image' and g.customization.bg_image %}
+    style="background: url('/static/bg/{{ g.customization.bg_image }}') no-repeat center center fixed; background-size: cover;"
+    {% else %}
+    style="background: linear-gradient(135deg, {{ g.customization.bg_color1 }} 0%, {{ g.customization.bg_color2 }} 100%);"
+    {% endif %}>
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6" style="opacity: {{ (g.customization.opacity / 100) if g.customization and g.customization.opacity else 1 }};">
+        <h1 class="text-3xl font-bold text-center text-blue-600 mb-8">数学作业智能批改助手</h1>
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="imageInput">选择包含数学题的图片</label>
+            <input type="file" id="imageInput" accept="image/*" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+        </div>
+        <div class="flex items-center justify-between mb-8">
+            <button id="uploadBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">上传图片</button>
+            <div id="uploadStatus" class="text-sm text-gray-500">就绪</div>
+        </div>
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2" for="queryCodeInput">查询码</label>
+            <div class="flex">
+                <input type="text" id="queryCodeInput" placeholder="上传后自动生成，或直接输入已有的查询码" class="shadow appearance-none border rounded-l w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                <button id="copyCodeBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-r focus:outline-none focus:shadow-outline">复制</button>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">已有查询码？直接输入后点击"查询结果"即可查看批改。</p>
+        </div>
+        <div class="flex items-center justify-between mb-8">
+            <button id="queryBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">查询结果</button>
+            <div id="queryStatus" class="text-sm text-gray-500">等待查询</div>
+        </div>
+        <div class="mt-8">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">批改结果</h2>
+            <div id="resultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px]">
+                <p class="text-gray-500 italic">结果将在这里显示...</p>
+            </div>
+        </div>
+    </div>
+    <script>
+        const SERVER_URL = window.location.origin;
+        let lastRequestTime = 0;
+        const BUTTON_COOLDOWN = 5000;
+        let latexDisplayMode = false;
+        async function renderLatex(element) {
+            await waitForMathJax();
+            if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                try {
+                    const html = element.innerHTML;
+                    const hasDisplay = html.includes('$$') || html.includes('\\[');
+                    latexDisplayMode = hasDisplay;
+                    await MathJax.typesetPromise([element]);
+                    console.log('LaTeX 渲染完成, mode:', hasDisplay ? '换行($$)' : '行内($)');
+                } catch (err) {
+                    console.warn('MathJax 渲染错误:', err);
+                }
+            }
+        }
+        function waitForMathJax(attempts = 0) {
+            return new Promise((resolve) => {
+                if (typeof MathJax !== 'undefined' && MathJax.startup) {
+                    if (MathJax.startup.promise) {
+                        MathJax.startup.promise.then(() => resolve()).catch(resolve);
+                    } else {
+                        resolve();
+                    }
+                } else if (attempts < 50) {
+                    setTimeout(() => waitForMathJax(attempts + 1).then(resolve), 100);
+                } else {
+                    resolve();
+                }
+            });
+        }
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            const imageInput = document.getElementById('imageInput');
+            const uploadBtn = document.getElementById('uploadBtn');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const queryCodeInput = document.getElementById('queryCodeInput');
+            const copyCodeBtn = document.getElementById('copyCodeBtn');
+            const queryBtn = document.getElementById('queryBtn');
+            const queryStatus = document.getElementById('queryStatus');
+            const resultDisplay = document.getElementById('resultDisplay');
+            uploadBtn.addEventListener('click', async () => {
+                const file = imageInput.files[0];
+                if (!file) { alert('请选择一张图片！'); return; }
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const base64Image = event.target.result;
+                    try {
+                        uploadStatus.textContent = '正在上传...';
+                        uploadBtn.disabled = true;
+                        uploadBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                        const response = await fetch(`${SERVER_URL}/upload_image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_data: base64Image }) });
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        const data = await response.json();
+                        const queryCode = data.query_code;
+                        queryCodeInput.value = queryCode;
+                        uploadStatus.textContent = `上传成功！查询码: ${queryCode.slice(0, 8)}...`;
+                    } catch (error) {
+                        console.error('Upload error:', error);
+                        uploadStatus.textContent = `上传失败: ${error.message}`;
+                    } finally {
+                        uploadBtn.disabled = false;
+                        uploadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    }
+                };
+                reader.readAsDataURL(file);
+            });
+            copyCodeBtn.addEventListener('click', () => {
+                if (queryCodeInput.value) { navigator.clipboard.writeText(queryCodeInput.value).then(() => alert('查询码已复制到剪贴板！')).catch(err => { console.error('Failed to copy: ', err); alert('复制失败，请手动复制。'); }); }
+                else { alert('请先上传图片获取查询码。'); }
+            });
+            queryBtn.addEventListener('click', async () => {
+                const currentTime = new Date().getTime();
+                if (currentTime - lastRequestTime < BUTTON_COOLDOWN) {
+                    const remainingTime = Math.ceil((BUTTON_COOLDOWN - (currentTime - lastRequestTime)) / 1000);
+                    queryStatus.textContent = `请稍候 ${remainingTime} 秒...`;
+                    return;
+                }
+                lastRequestTime = currentTime;
+                const queryCode = queryCodeInput.value.trim();
+                if (!queryCode) { alert('请输入查询码或先上传图片！'); return; }
+                try {
+                    queryStatus.innerHTML = '<span class="flex items-center"><span class="spinner inline-block w-4 h-4 border-2 border-blue-500 rounded-full mr-2"></span> 正在查询...</span>';
+                    queryBtn.disabled = true;
+                    queryBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    const response = await fetch(`${SERVER_URL}/query_status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query_code: queryCode }) });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    const status = data.status;
+                    const result = data.result;
+                    if (status === 'completed') {
+                        queryStatus.textContent = '查询完成';
+                        resultDisplay.innerHTML = `<div class="result-content">${escapeHtml(result)}</div>`;
+                        setTimeout(async () => {
+                            const contentDiv = resultDisplay.querySelector('.result-content');
+                            if (contentDiv) await renderLatex(contentDiv);
+                        }, 100);
+                    } else if (status === 'processing') {
+                        queryStatus.textContent = 'AI正在分析中，请稍后查询...';
+                        resultDisplay.innerHTML = '<p class="text-yellow-600">AI正在分析中，请稍后刷新或再次查询。</p>';
+                    } else if (status === 'pending') {
+                        queryStatus.textContent = '任务排队中，请稍后查询...';
+                        resultDisplay.innerHTML = '<p class="text-yellow-600">任务排队中，请稍后刷新或再次查询。</p>';
+                    } else {
+                        queryStatus.textContent = '未知状态';
+                        resultDisplay.innerHTML = `<p class="text-red-500">服务器返回未知状态: ${status}</p>`;
+                    }
+                } catch (error) {
+                    console.error('Query error:', error);
+                    queryStatus.textContent = `查询失败: ${error.message}`;
+                    resultDisplay.innerHTML = `<p class="text-red-500">查询失败: ${error.message}</p>`;
+                } finally {
+                    queryBtn.disabled = false;
+                    queryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
