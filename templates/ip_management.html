@@ -1,0 +1,52 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+<div class="container mx-auto">
+  <h1 class="text-2xl font-semibold mb-4">IP管理</h1>
+  
+  <section class="bg-white rounded-lg shadow p-4 mb-4">
+    <h3 class="text-lg font-semibold mb-2">已封禁IP</h3>
+    {% if banned %}
+    <ul class="list-disc pl-5">
+    {% for ip in banned %}
+    <li class="flex items-center justify-between py-1">
+      <span>{{ ip }}</span>
+      <form action="/admin/ip/unban" method="POST" style="display:inline;">
+        <input type="hidden" name="ip" value="{{ ip }}">
+        <button type="submit" class="text-blue-500 hover:text-blue-700 text-sm">解封</button>
+      </form>
+    </li>
+    {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-gray-500">暂无封禁</p>
+    {% endif %}
+  </section>
+  
+  <section class="bg-white rounded-lg shadow p-4">
+    <h3 class="text-lg font-semibold mb-2">请求统计</h3>
+    <table class="min-w-full">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-2 text-left">IP</th>
+          <th class="px-4 py-2 text-left">请求次数</th>
+          <th class="px-4 py-2 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for ip, count in stats.items()|sort(attribute='1', reverse=true) %}
+      <tr>
+        <td class="px-4 py-2">{{ ip }}</td>
+        <td class="px-4 py-2">{{ count }}</td>
+        <td class="px-4 py-2">
+          <form action="/admin/ip/ban" method="POST" style="display:inline;">
+            <input type="hidden" name="ip" value="{{ ip }}">
+            <button type="submit" class="text-red-500 hover:text-red-700 text-sm">封禁</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}

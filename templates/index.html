@@ -70,6 +70,12 @@
             <div id="resultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px]">
                 <p class="text-gray-500 italic">结果将在这里显示...</p>
             </div>
+            <div id="audioSection" class="mt-4 hidden">
+                <button id="generateAudioBtn" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                    🔊 生成语音讲解
+                </button>
+                <audio id="audioPlayer" controls class="mt-2 w-full hidden"></audio>
+            </div>
         </div>
     </div>
     <script>
@@ -124,6 +130,11 @@
             const queryBtn = document.getElementById('queryBtn');
             const queryStatus = document.getElementById('queryStatus');
             const resultDisplay = document.getElementById('resultDisplay');
+            const audioSection = document.getElementById('audioSection');
+            const generateAudioBtn = document.getElementById('generateAudioBtn');
+            const audioPlayer = document.getElementById('audioPlayer');
+            let currentQueryCode = '';
+            let hasAudio = false;
             uploadBtn.addEventListener('click', async () => {
                 const file = imageInput.files[0];
                 if (!file) { alert('请选择一张图片！'); return; }
@@ -176,6 +187,16 @@
                     if (status === 'completed') {
                         queryStatus.textContent = '查询完成';
                         resultDisplay.innerHTML = `<div class="result-content">${escapeHtml(result)}</div>`;
+                        currentQueryCode = queryCode;
+                        hasAudio = data.has_audio === true;
+                        audioSection.classList.remove('hidden');
+                        if (hasAudio) {
+                            audioPlayer.src = `${SERVER_URL}/results/${queryCode}_audio.wav`;
+                            audioPlayer.classList.remove('hidden');
+                            generateAudioBtn.textContent = '🔊 重新生成语音';
+                        } else {
+                            audioPlayer.classList.add('hidden');
+                        }
                         setTimeout(async () => {
                             const contentDiv = resultDisplay.querySelector('.result-content');
                             if (contentDiv) await renderLatex(contentDiv);
@@ -197,6 +218,35 @@
                 } finally {
                     queryBtn.disabled = false;
                     queryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+            
+            generateAudioBtn.addEventListener('click', async () => {
+                if (!currentQueryCode) return;
+                try {
+                    generateAudioBtn.disabled = true;
+                    generateAudioBtn.textContent = '🔊 正在生成语音...';
+                    const response = await fetch(`${SERVER_URL}/generate_audio`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query_code: currentQueryCode })
+                    });
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    const data = await response.json();
+                    if (data.status === 'generated' || data.status === 'exists') {
+                        audioPlayer.src = data.audio_url;
+                        audioPlayer.classList.remove('hidden');
+                        audioPlayer.play();
+                        generateAudioBtn.textContent = '🔊 重新生成语音';
+                        hasAudio = true;
+                    } else {
+                        alert('生成失败: ' + (data.error || '未知错误'));
+                    }
+                } catch (error) {
+                    console.error('生成语音错误:', error);
+                    alert('生成失败: ' + error.message);
+                } finally {
+                    generateAudioBtn.disabled = false;
                 }
             });
         });

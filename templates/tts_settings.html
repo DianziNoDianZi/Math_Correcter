@@ -1,0 +1,117 @@
+{% extends 'admin_base.html' %}
+{% block content %}
+<div class="container mx-auto">
+  <h1 class="text-2xl font-semibold mb-4">TTS 语音合成设置</h1>
+  
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="mb-4 p-3 rounded {% if category == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  
+  <section class="bg-white rounded-lg shadow p-6">
+    <form action="/admin/tts" method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="md:col-span-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" name="enabled" {% if tts.enabled %}checked{% endif %} class="w-5 h-5">
+          <span class="text-lg font-semibold">启用语音讲解功能</span>
+        </label>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">TTS 引擎</label>
+        <select name="engine" class="border rounded w-full px-3 py-2">
+          <option value="qwen-tts" {% if tts.engine == 'qwen-tts' %}selected{% endif %}>Qwen-TTS (Gradio)</option>
+          <option value="gpt-sovits" {% if tts.engine == 'gpt-sovits' %}selected{% endif %}>GPT-SoVITS</option>
+        </select>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">API 地址</label>
+        <input type="text" name="api_base" value="{{ tts.api_base }}" class="border rounded w-full px-3 py-2" placeholder="http://127.0.0.1:7860 或 http://127.0.0.1:9880">
+        <p class="text-xs text-gray-500 mt-1">Qwen-TTS:7860, GPT-SoVITS:9880</p>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">模型选择</label>
+        <select name="model_name" class="border rounded w-full px-3 py-2">
+          <option value="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice" {% if tts.model_name == 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice' %}selected{% endif %}>CustomVoice (1.7B) - 预设音色</option>
+          <option value="Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice" {% if tts.model_name == 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice' %}selected{% endif %}>CustomVoice (0.6B) - 预设音色</option>
+          <option value="Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign" {% if tts.model_name == 'Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign' %}selected{% endif %}>VoiceDesign - 声音设计</option>
+        </select>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">音色 / 特征描述</label>
+        <input type="text" name="voice" value="{{ tts.voice }}" class="border rounded w-full px-3 py-2" placeholder="default">
+        <p class="text-xs text-gray-500 mt-1">CustomVoice 填 default，VoiceDesign 填声音特征描述</p>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">语速 (0.5-2.0)</label>
+        <input type="number" name="speed" value="{{ tts.speed }}" min="0.5" max="2.0" step="0.1" class="border rounded w-full px-3 py-2">
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">音频输出目录</label>
+        <input type="text" name="output_dir" value="{{ tts.output_dir }}" class="border rounded w-full px-3 py-2" placeholder="D:\qwen-tts-webui\core\outputs">
+        <p class="text-xs text-gray-500 mt-1">Qwen-TTS 生成音频的保存目录</p>
+      </div>
+      
+      <div class="md:col-span-2 border-t pt-4 mt-4">
+        <h3 class="text-lg font-semibold mb-2">GPT-SoVITS 配置 (端口 9872)</h3>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">参考音频路径 (.wav文件)</label>
+        <input type="text" name="refer_wav" value="{{ tts.refer_wav }}" class="border rounded w-full px-3 py-2" placeholder="D:\GPT-SoVITS\xxx.wav">
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">参考音频文本</label>
+        <input type="text" name="prompt_text" value="{{ tts.prompt_text }}" class="border rounded w-full px-3 py-2" placeholder="参考音频的文字内容">
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">参考音频语言</label>
+        <select name="prompt_language" class="border rounded w-full px-3 py-2">
+          <option value="中文" {% if tts.prompt_language == '中文' %}selected{% endif %}>中文</option>
+          <option value="英文" {% if tts.prompt_language == '英文' %}selected{% endif %}>英文</option>
+          <option value="日文" {% if tts.prompt_language == '日文' %}selected{% endif %}>日文</option>
+          <option value="粤语" {% if tts.prompt_language == '粤语' %}selected{% endif %}>粤语</option>
+        </select>
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">SoVITS 模型</label>
+        <input type="text" name="sovits_model" value="{{ tts.sovits_model }}" class="border rounded w-full px-3 py-2" placeholder="SoVITS_weights_v2/perika_e15_s540.pth">
+      </div>
+      
+      <div>
+        <label class="block text-sm font-semibold mb-1">GPT 模型</label>
+        <input type="text" name="gpt_model" value="{{ tts.gpt_model }}" class="border rounded w-full px-3 py-2" placeholder="GPT_weights_v2/perika-e20.ckpt">
+      </div>
+      
+      <div class="md:col-span-2 flex gap-4 mt-4">
+        <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded">保存设置</button>
+        <button type="button" onclick="document.getElementById('test-form').submit()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded">测试连接</button>
+      </div>
+    </form>
+    <form id="test-form" action="/admin/tts/test" method="POST" class="hidden"></form>
+  </section>
+  
+  <section class="bg-gray-50 rounded-lg shadow p-4 mt-6">
+    <h2 class="text-lg font-semibold mb-2">使用说明</h2>
+    <ul class="list-disc list-inside text-sm space-y-1 text-gray-700">
+      <li>启用后，用户可在查询结果页面点击「生成语音讲解」按钮</li>
+      <li><strong>CustomVoice</strong>：使用预设音色，适合一般语音合成</li>
+      <li><strong>VoiceDesign</strong>：根据文字描述生成新音色</li>
+      <li><strong>Base</strong>：使用参考音频进行声音克隆</li>
+      <li>请确保 Qwen-TTS Gradio 服务已启动并正常运行</li>
+      <li>测试连接将发送一段测试语音验证服务是否正常</li>
+    </ul>
+  </section>
+</div>
+{% endblock %}
