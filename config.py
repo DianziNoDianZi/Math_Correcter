@@ -23,6 +23,20 @@ DEFAULT_CONFIG = {
         'bg_color1': '#667eea',
         'bg_color2': '#764ba2',
         'bg_image': ''
+    },
+    'tts': {
+        'enabled': False,
+        'engine': 'qwen-tts',
+        'api_base': 'http://127.0.0.1:7860',
+        'voice': 'default',
+        'speed': 1.0,
+        'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice',
+        'output_dir': 'D:\\qwen-tts-webui\\core\\outputs',
+        'refer_wav': '',
+        'prompt_text': '',
+        'prompt_language': '中文',
+        'sovits_model': '',
+        'gpt_model': ''
     }
 }
 
@@ -44,7 +58,8 @@ def _reload_config():
             'vision_model': data.get('vision_model', DEFAULT_CONFIG['vision_model']),
             'text_model': data.get('text_model', DEFAULT_CONFIG['text_model']),
             'models': data.get('models', []),
-            'customization': data.get('customization', DEFAULT_CONFIG.get('customization', {}))
+            'customization': data.get('customization', DEFAULT_CONFIG.get('customization', {})),
+            'tts': data.get('tts', DEFAULT_CONFIG.get('tts', {}))
         }
         # 兼容性：确保 models 字段存在
         if not isinstance(_config.get('models', []), list):

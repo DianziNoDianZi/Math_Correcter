@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from config import get_config, get_models_dict
 from datetime import datetime
+import shutil
 
 # 目录常量，与原实现保持一致
 UPLOAD_FOLDER = 'uploads'
@@ -42,6 +43,20 @@ SECOND_PROMPT = (
     "错误分析：[请详细分析学生的错误，指出错误原因，用中文]\n\n"
     "正确解答：[请给出完全正确的解答，所有数学公式必须用LaTeX格式（$$...$$）书写]\n\n"
     "学生回答内容："
+)
+
+EXPLANATION_PROMPT = (
+    "你是一位耐心的数学老师。请基于以下批改结果，用口语化、亲切的方式生成一段语音讲解。"
+    "要求：\n"
+    "1. 先自我介绍，说是语音讲解\n"
+    "2. 简洁概括题目内容\n"
+    "3. 指出学生的对错情况\n"
+    "4. 详细讲解正确解法\n"
+    "5. 语速适中，方便学生理解\n"
+    "6. 不要使用 LaTeX 公式，用文字描述数学表达式\n"
+    "7. 总时长控制在2-3分钟的文字量\n"
+    "8. 直接输出讲解内容，不要有额外格式标记\n"
+    "批改结果如下："
 )
 
 def _load_config():
@@ -137,6 +152,184 @@ def call_llm_api(model_name, messages, image_url=None):
     )
     response.raise_for_status()
     return response.json()['choices'][0]['message']['content']
+
+def call_tts_api(text, query_code):
+    """调用 TTS API 生成语音"""
+    cfg = _load_config()
+    tts_cfg = cfg.get('tts', {})
+    
+    if not tts_cfg.get('enabled', False):
+        raise ValueError("TTS 功能未启用")
+    
+    engine = tts_cfg.get('engine', 'qwen-tts')
+    api_base = tts_cfg.get('api_base', 'http://127.0.0.1:7860')
+    voice = tts_cfg.get('voice', 'default')
+    speed = tts_cfg.get('speed', 1.0)
+    model_name = tts_cfg.get('model_name', 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice')
+    output_dir = tts_cfg.get('output_dir', 'D:\\qwen-tts-webui\\core\\outputs')
+    
+    output_path = os.path.join(RESULTS_DIR, f"{query_code}_audio.wav")
+    
+    if engine == 'qwen-tts':
+        try:
+            from gradio_client import Client
+            
+            client = Client(api_base)
+            
+            before_files = set(os.listdir(output_dir)) if os.path.exists(output_dir) else set()
+            
+            if 'CustomVoice' in model_name:
+                result = client.predict(
+                    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                    text,
+                    voice,
+                    "default",
+                    "auto",
+                    False,
+                    api_name="/generate_voice_fn"
+                )
+            elif 'VoiceDesign' in model_name:
+                result = client.predict(
+                    "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
+                    text,
+                    voice,
+                    "auto",
+                    False,
+                    api_name="/generate_design_fn"
+                )
+            else:
+                raise ValueError(f"不支持的模型: {model_name}")
+            
+            print(f"TTS API result: {result}")
+            
+            import time
+            time.sleep(8)
+            
+            after_files = set(os.listdir(output_dir)) if os.path.exists(output_dir) else set()
+            new_files = after_files - before_files
+            
+            if not new_files:
+                raise ValueError(f"未检测到新生成的音频文件，输出目录: {output_dir}")
+            
+            latest_file = sorted(new_files)[-1]
+            src_audio = os.path.join(output_dir, latest_file)
+            
+            if os.path.exists(src_audio):
+                shutil.copy(src_audio, output_path)
+            else:
+                raise ValueError(f"源音频文件不存在: {src_audio}")
+                
+        except Exception as e:
+            raise ValueError(f"TTS 调用失败: {str(e)}")
+    
+    elif engine == 'gpt-sovits':
+        refer_wav = tts_cfg.get('refer_wav', '')
+        prompt_text = tts_cfg.get('prompt_text', '')
+        prompt_language = tts_cfg.get('prompt_language', 'zh')
+        sovits_model = tts_cfg.get('sovits_model', '')
+        gpt_model = tts_cfg.get('gpt_model', '')
+        
+        if not refer_wav:
+            raise ValueError("GPT-SoVITS 未配置参考音频路径")
+        
+        try:
+            from gradio_client import Client, handle_file
+            
+            client = Client(api_base)
+            
+            if sovits_model:
+                client.predict(
+                    sovits_path=sovits_model,
+                    prompt_language=prompt_language,
+                    text_language=prompt_language,
+                    api_name="/change_sovits_weights"
+                )
+            
+            if gpt_model:
+                client.predict(
+                    weights_path=gpt_model,
+                    api_name="/init_t2s_weights"
+                )
+            
+            before_files = set(os.listdir(RESULTS_DIR)) if os.path.exists(RESULTS_DIR) else set()
+            
+            result = client.predict(
+                text,
+                prompt_language,
+                handle_file(refer_wav),
+                [],
+                prompt_text,
+                prompt_language,
+                5,
+                1,
+                1,
+                "按标点符号切",
+                20,
+                speed,
+                False if prompt_text else True,
+                True,
+                0.3,
+                -1,
+                True,
+                True,
+                1.35,
+                32,
+                False,
+                api_name="/inference"
+)
+            
+            print(f"TTS result: {result}")
+            print(f"TTS result type: {type(result)}")
+            
+            import time
+            time.sleep(3)
+            
+            if isinstance(result, (list, tuple)) and len(result) > 0:
+                audio_file = result[0]
+                if audio_file and os.path.exists(audio_file):
+                    shutil.copy(audio_file, output_path)
+                else:
+                    raise ValueError(f"音频文件路径无效: {audio_file}")
+            else:
+                raise ValueError(f"未检测到生成的音频文件，返回: {result}")
+            
+        except Exception as e:
+            raise ValueError(f"TTS 调用失败: {str(e)}")
+    
+    else:
+        raise ValueError(f"不支持的 TTS 引擎: {engine}")
+    
+    return output_path
+
+def generate_explanation(query_code):
+    """生成语音讲解文字并合成语音"""
+    result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
+    audio_path = os.path.join(RESULTS_DIR, f"{query_code}_audio.wav")
+    
+    if not os.path.exists(result_path):
+        raise ValueError(f"结果文件不存在: {query_code}")
+    
+    with open(result_path, 'r', encoding='utf-8') as f:
+        grading_result = f.read()
+    
+    cfg = _load_config()
+    text_model = cfg.get('text_model', '')
+    
+    if not text_model:
+        raise ValueError("未配置文本模型")
+    
+    explanation_text = call_llm_api(
+        text_model,
+        [{"role": "user", "content": EXPLANATION_PROMPT + grading_result}]
+    )
+    
+    audio_path = call_tts_api(explanation_text, query_code)
+    
+    explanation_path = os.path.join(RESULTS_DIR, f"{query_code}_explanation.txt")
+    with open(explanation_path, 'w', encoding='utf-8') as f:
+        f.write(explanation_text)
+    
+    return audio_path, explanation_text
 
 def process_task(task_file_path, query_code):
     processing_path = task_file_path

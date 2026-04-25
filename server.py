@@ -15,7 +15,11 @@ from flask import send_from_directory
 
 import processor
 from config import get_config, ensure_defaults, save_config, get_models_dict
-from processor import _parse_pending_filename, call_llm_api
+from processor import _parse_pending_filename, call_llm_api, generate_explanation, call_tts_api
+
+# IP封禁列表和请求统计
+ipRequests = {}  # {ip: count}
+bannedIPs = set()
 
 # 初始化全局模型字典
 models_dict = get_models_dict()
@@ -69,10 +73,28 @@ app.secret_key = 'your-secret-key-here'  # 用于 flash 消息
 
 SERVER_START_TIME = time.time()
 
+# 记录跳转目标页面
+@app.route('/admin/login', methods=['GET','POST'])
+def admin_login():
+    if request.method == 'POST':
+        user = request.form.get('username')
+        pwd = request.form.get('password')
+        if user == ADMIN_USER and pwd == ADMIN_PASS:
+            session['admin_logged_in'] = True
+            next_url = request.args.get('next') or url_for('admin_dashboard')
+            return redirect(next_url)
+        flash('无效的用户名或密码')
+    return render_template('admin_login.html')
+
 @app.before_request
 def inject_customization():
-    """自动注入个性化设置到所有模板"""
-    customization = {'bg_type': 'gradient', 'bg_color1': '#667eea', 'bg_color2': '#764ba2', 'bg_image': ''}
+    # IP统计和封禁检查
+    ip = request.remote_addr
+    if ip in bannedIPs:
+        return jsonify({'error': 'IP已被封禁'}), 403
+    ipRequests[ip] = ipRequests.get(ip, 0) + 1
+    
+    customization = {'bg_type': 'gradient', 'bg_color1': '#667eea', 'bg_color2': '#764ba2', 'bg_image': '', 'opacity': 100}
     try:
         cfg = get_config()
         if cfg and 'customization' in cfg:
@@ -150,11 +172,53 @@ def query_status():
                 else:
                     return jsonify({'error': 'Query code not found'}), 404
 
-        return jsonify({'status': status, 'result': result_text})
+        audio_path = os.path.join(RESULTS_DIR, f"{query_code}_audio.wav")
+        has_audio = os.path.exists(audio_path)
+
+        return jsonify({'status': status, 'result': result_text, 'has_audio': has_audio})
 
     except Exception as e:
         logger.error(f"Query status error: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/generate_audio', methods=['POST'])
+def generate_audio_api():
+    """生成语音讲解"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+
+        query_code = data['query_code']
+        cfg = get_config()
+        tts_cfg = cfg.get('tts', {})
+
+        if not tts_cfg.get('enabled', False):
+            return jsonify({'error': 'TTS 功能未启用'}), 400
+
+        audio_path = os.path.join(RESULTS_DIR, f"{query_code}_audio.wav")
+        if os.path.exists(audio_path):
+            return jsonify({'status': 'exists', 'audio_url': f'/results/{query_code}_audio.wav'})
+
+        audio_path, explanation_text = generate_explanation(query_code)
+        audio_filename = os.path.basename(audio_path)
+
+        return jsonify({
+            'status': 'generated',
+            'audio_url': f'/results/{audio_filename}',
+            'explanation': explanation_text[:500]
+        })
+
+    except Exception as e:
+        logger.error(f"生成语音错误: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/results/<path:filename>')
+def serve_audio(filename):
+    """提供音频文件"""
+    return send_from_directory(RESULTS_DIR, filename)
 
 from flask import render_template
 
@@ -217,6 +281,29 @@ def admin():
 def admin_logs():
     logs = _tail_log(500)
     return render_template('logs.html', logs=logs)
+
+@app.route('/admin/ip')
+@admin_required
+def ip_management():
+    return render_template('ip_management.html', stats=ipRequests, banned=list(bannedIPs))
+
+@app.route('/admin/ip/ban', methods=['POST'])
+@admin_required
+def ban_ip():
+    ip = request.form.get('ip', '').strip()
+    if ip:
+        bannedIPs.add(ip)
+        flash(f'已封禁 IP: {ip}', 'success')
+    return redirect(url_for('ip_management'))
+
+@app.route('/admin/ip/unban', methods=['POST'])
+@admin_required
+def unban_ip():
+    ip = request.form.get('ip', '').strip()
+    if ip and ip in bannedIPs:
+        bannedIPs.discard(ip)
+        flash(f'已解封 IP: {ip}', 'success')
+    return redirect(url_for('ip_management'))
 
 def _tail_log(n=200):
     log_path = 'server.log'
@@ -326,6 +413,60 @@ def customization_page():
         return redirect(url_for('customization_page'))
     customization = cfg.get('customization', {'bg_type': 'gradient', 'bg_color1': '#667eea', 'bg_color2': '#764ba2', 'bg_image': ''})
     return render_template('customization.html', customization=customization)
+
+
+@app.route('/admin/tts', methods=['GET', 'POST'])
+@admin_required
+def tts_page():
+    """TTS 设置页面"""
+    cfg = get_config()
+    if request.method == 'POST':
+        cfg.setdefault('tts', {})
+        cfg['tts']['enabled'] = request.form.get('enabled') == 'on'
+        cfg['tts']['engine'] = request.form.get('engine', 'qwen-tts')
+        cfg['tts']['api_base'] = request.form.get('api_base', '').strip()
+        cfg['tts']['voice'] = request.form.get('voice', 'default')
+        cfg['tts']['speed'] = float(request.form.get('speed', 1.0))
+        cfg['tts']['model_name'] = request.form.get('model_name', 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice')
+        cfg['tts']['output_dir'] = request.form.get('output_dir', 'D:\\qwen-tts-webui\\core\\outputs').strip()
+        cfg['tts']['refer_wav'] = request.form.get('refer_wav', '').strip()
+        cfg['tts']['prompt_text'] = request.form.get('prompt_text', '').strip()
+        cfg['tts']['prompt_language'] = request.form.get('prompt_language', 'zh')
+        cfg['tts']['sovits_model'] = request.form.get('sovits_model', '').strip()
+        cfg['tts']['gpt_model'] = request.form.get('gpt_model', '').strip()
+        save_config(cfg)
+        flash('TTS 设置已保存', 'success')
+        return redirect(url_for('tts_page'))
+    tts_cfg = cfg.get('tts', {'enabled': False, 'engine': 'qwen-tts', 'api_base': 'http://127.0.0.1:7860', 'voice': 'default', 'speed': 1.0, 'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', 'output_dir': 'D:\\qwen-tts-webui\\core\\outputs', 'refer_wav': '', 'prompt_text': '', 'prompt_language': 'zh', 'sovits_model': '', 'gpt_model': ''})
+    return render_template('tts_settings.html', tts=tts_cfg)
+
+
+@app.route('/admin/tts/test', methods=['POST'])
+@admin_required
+def test_tts():
+    """测试 TTS 连接"""
+    try:
+        from processor import call_tts_api
+        cfg = get_config()
+        tts_cfg = cfg.get('tts', {})
+        
+        if not tts_cfg.get('enabled'):
+            flash('TTS 功能未启用', 'error')
+            return redirect(url_for('tts_page'))
+        
+        test_text = "你好，这是语音测试。"
+        test_code = f"test_{uuid.uuid4().hex[:8]}"
+        
+        audio_path = call_tts_api(test_text, test_code)
+        
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+        
+        flash('TTS 连接测试成功！', 'success')
+    except Exception as e:
+        flash(f'TTS 连接测试失败: {str(e)}', 'error')
+    
+    return redirect(url_for('tts_page'))
 
 @app.route('/admin/models')
 @admin_required
