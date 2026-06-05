@@ -372,7 +372,7 @@ def generate_explanation(query_code):
     
     return audio_path, explanation_text
 
-def generate_guide_hints(query_code, extracted_content):
+def generate_guide_hints(query_code, custom_prompt=None, extracted_content=''):
     """生成逐步指导的4个提示"""
     cfg = _load_config()
     text_model = cfg.get('text_model', '')
@@ -380,10 +380,16 @@ def generate_guide_hints(query_code, extracted_content):
     if not text_model:
         raise ValueError("未配置文本模型")
     
+    # 使用自定义提示或默认提示
+    if custom_prompt is None:
+        prompt = GUIDE_HINTS_PROMPT + extracted_content
+    else:
+        prompt = custom_prompt + extracted_content
+    
     # 生成4个提示
     hints_text = call_llm_api(
         text_model,
-        [{"role": "user", "content": GUIDE_HINTS_PROMPT + extracted_content}]
+        [{"role": "user", "content": prompt}]
     )
     
     # 尝试解析 JSON
@@ -431,7 +437,75 @@ def get_hints(query_code):
             return json.load(f)
     return None
 
-def process_task(task_file_path, query_code, mode='quick'):
+def extract_knowledge_points(query_code, extracted_content, grade_description):
+    """提取知识点并生成知识点图谱数据"""
+    cfg = _load_config()
+    text_model = cfg.get('text_model', '')
+    
+    if not text_model:
+        logger.warning("未配置文本模型，跳过知识点提取")
+        return None
+    
+    # 知识点提取提示
+    knowledge_prompt = (
+        f"作为一位{grade_description}数学老师，请分析以下题目和学生回答，提取涉及的知识点。\n\n"
+        "请用JSON数组格式返回知识点列表，每个知识点包含：\n"
+        "- name: 知识点名称\n"
+        "- type: 知识点类型（基础/核心/拓展）\n"
+        "- mastered: 是否已掌握（基于学生回答判断）\n\n"
+        "示例格式：\n"
+        '[\n'
+        '  {"name": "一元二次方程", "type": "核心", "mastered": false},\n'
+        '  {"name": "配方法", "type": "基础", "mastered": true}\n'
+        ']\n\n'
+        "题目和学生回答如下：\n"
+        f"{extracted_content}\n\n"
+        "请只返回JSON数组，不要有其他内容。"
+    )
+    
+    try:
+        knowledge_text = call_llm_api(
+            text_model,
+            [{"role": "user", "content": knowledge_prompt}]
+        )
+        
+        # 清理和解析
+        knowledge_text = knowledge_text.strip()
+        if knowledge_text.startswith('```json'):
+            knowledge_text = knowledge_text[7:]
+        if knowledge_text.startswith('```'):
+            knowledge_text = knowledge_text[3:]
+        if knowledge_text.endswith('```'):
+            knowledge_text = knowledge_text[:-3]
+        
+        knowledge_points = json.loads(knowledge_text)
+        
+        # 保存知识点
+        knowledge_path = os.path.join(RESULTS_DIR, f"{query_code}_knowledge.json")
+        with open(knowledge_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'grade': grade_description,
+                'knowledge_points': knowledge_points,
+                'total': len(knowledge_points),
+                'mastered': sum(1 for k in knowledge_points if k.get('mastered', False)),
+                'not_mastered': sum(1 for k in knowledge_points if not k.get('mastered', True))
+            }, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"知识点提取完成: {len(knowledge_points)} 个知识点")
+        return knowledge_points
+    except Exception as e:
+        logger.error(f"知识点提取失败: {e}")
+        return None
+
+def get_knowledge_points(query_code):
+    """获取已提取的知识点"""
+    knowledge_path = os.path.join(RESULTS_DIR, f"{query_code}_knowledge.json")
+    if os.path.exists(knowledge_path):
+        with open(knowledge_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return None
+
+def process_task(task_file_path, query_code, mode='quick', grade='10-12'):
     processing_path = task_file_path
     try:
         # 检查文件是否已在 processing 目录
@@ -446,13 +520,12 @@ def process_task(task_file_path, query_code, mode='quick'):
         cancel_marker = os.path.join(CANCELLED_DIR, f"{query_code}.cancel")
         if os.path.exists(cancel_marker):
             logger.info(f"任务 {query_code} 已取消（启动前标记），跳过处理。")
-            # 将文件移到 cancelled 目录
             cancelled_path = os.path.join(CANCELLED_DIR, os.path.basename(processing_path))
             os.rename(processing_path, cancelled_path)
-            processing_path = None  # 标记已移动，避免 finally 重复删除
+            processing_path = None
             return
 
-        logger.info(f"开始处理任务 {query_code}，模式: {mode}")
+        logger.info(f"开始处理任务 {query_code}，模式: {mode}，年级: {grade}")
 
         # 读取并编码图片
         with open(processing_path, "rb") as img_file:
@@ -463,53 +536,73 @@ def process_task(task_file_path, query_code, mode='quick'):
         vision_model = cfg.get('vision_model', '')
         text_model = cfg.get('text_model', '')
 
+        # 根据年级获取描述
+        grade_description = {
+            '1-2': '小学1-2年级',
+            '3-4': '小学3-4年级', 
+            '5-6': '小学5-6年级',
+            '7-9': '初中',
+            '10-12': '高中'
+        }.get(grade, '高中')
+
         # 第一阶段：视觉模型提取题目/答案
         first_response = call_llm_api(vision_model, [{"role": "user", "content": FIRST_PROMPT}], image_url=image_data_url)
         
-        # 保存提取的内容，以便后续生成指导提示（如果需要）
+        # 保存提取的内容
         extracted_path = os.path.join(RESULTS_DIR, f"{query_code}_extracted.txt")
         with open(extracted_path, 'w', encoding='utf-8') as f:
             f.write(first_response)
 
         if mode == 'guided':
-            # 逐步指导模式：生成4个提示，同时也生成完整批改（供查看完整解答时使用）
+            # 逐步指导模式
             try:
-                generate_guide_hints(query_code, first_response)
+                # 根据年级调整提示
+                guided_prompt = GUIDE_HINTS_PROMPT.replace(
+                    "请根据以下题目和学生回答",
+                    f"学生所在年级是{grade_description}，请根据{grade_description}学生的认知水平，请根据以下题目和学生回答"
+                )
+                generate_guide_hints(query_code, guided_prompt, first_response)
             except Exception as e:
                 logger.error(f"生成指导提示失败: {e}")
             
-            # 同时也生成完整批改结果
-            combined_text = SECOND_PROMPT + first_response
+            # 生成完整批改结果
+            combined_text = SECOND_PROMPT.replace(
+                "你是一位耐心且鼓励性的数学辅导老师",
+                f"你是一位专门教{grade_description}学生的耐心且鼓励性的数学辅导老师"
+            ) + first_response
             final_result = call_llm_api(text_model, [{"role": "user", "content": combined_text}])
             
             result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
-            if os.path.exists(cancel_marker):
-                logger.info(f"任务 {query_code} 在完成前被取消，放弃结果写入。")
-            else:
+            if not os.path.exists(cancel_marker):
                 with open(result_path, 'w', encoding='utf-8') as f:
                     f.write(final_result)
         else:
             # 快速批改模式
-            combined_text = SECOND_PROMPT + first_response
+            combined_text = SECOND_PROMPT.replace(
+                "你是一位耐心且鼓励性的数学辅导老师",
+                f"你是一位专门教{grade_description}学生的耐心且鼓励性的数学辅导老师"
+            ) + first_response
             final_result = call_llm_api(text_model, [{"role": "user", "content": combined_text}])
             
-            # 保存最终结果
             result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
-            if os.path.exists(cancel_marker):
-                logger.info(f"任务 {query_code} 在完成前被取消，放弃结果写入。")
-            else:
+            if not os.path.exists(cancel_marker):
                 with open(result_path, 'w', encoding='utf-8') as f:
                     f.write(final_result)
 
+        # 提取知识点
+        try:
+            extract_knowledge_points(query_code, first_response, grade_description)
+        except Exception as e:
+            logger.error(f"提取知识点失败: {e}")
+
         logger.info(f"任务 {query_code} 处理完成")
 
-        # 若处理完成后发现取消标记，清理结果并移动文件
         if os.path.exists(cancel_marker):
             if os.path.exists(result_path):
                 os.remove(result_path)
             cancelled_path = os.path.join(CANCELLED_DIR, os.path.basename(processing_path))
             os.rename(processing_path, cancelled_path)
-            processing_path = None  # 标记已移动
+            processing_path = None
 
     except Exception as e:
         logger.error(f"处理任务 {query_code} 时发生错误: {e}")
@@ -517,7 +610,6 @@ def process_task(task_file_path, query_code, mode='quick'):
         with open(error_result_path, 'w', encoding='utf-8') as f:
             f.write(f"处理过程中发生错误: {str(e)}")
     finally:
-        # 清理 processing 目录中的原文件（仅当未被移动时）
         if processing_path and os.path.exists(processing_path):
             try:
                 os.remove(processing_path)
@@ -537,7 +629,7 @@ def _scan_loop(executor):
             pending_list = []
             for filename in os.listdir(PENDING_DIR):
                 fullpath = os.path.join(PENDING_DIR, filename)
-                if os.path.isfile(fullpath) and not filename.endswith('_mode.txt'):
+                if os.path.isfile(fullpath) and not filename.endswith('_mode.txt') and not filename.endswith('_grade.txt'):
                     try:
                         priority, code = _parse_pending_filename(filename)
                     except Exception:
@@ -553,22 +645,29 @@ def _scan_loop(executor):
                     if os.path.exists(fullpath):
                         os.rename(fullpath, processing_path)
                         
-                        # 读取模式信息
+                        # 读取模式和年级信息
                         mode = 'quick'
+                        grade = '10-12'
+                        
                         mode_file = os.path.join(PENDING_DIR, f"{code}_mode.txt")
                         if os.path.exists(mode_file):
                             try:
                                 with open(mode_file, 'r', encoding='utf-8') as f:
                                     mode = f.read().strip()
-                                # 移动模式文件到 processing
-                                try:
-                                    os.rename(mode_file, os.path.join(PROCESSING_DIR, f"{code}_mode.txt"))
-                                except Exception:
-                                    pass
+                                os.rename(mode_file, os.path.join(PROCESSING_DIR, f"{code}_mode.txt"))
                             except Exception:
                                 pass
                         
-                        executor.submit(process_task, processing_path, code, mode)
+                        grade_file = os.path.join(PENDING_DIR, f"{code}_grade.txt")
+                        if os.path.exists(grade_file):
+                            try:
+                                with open(grade_file, 'r', encoding='utf-8') as f:
+                                    grade = f.read().strip()
+                                os.rename(grade_file, os.path.join(PROCESSING_DIR, f"{code}_grade.txt"))
+                            except Exception:
+                                pass
+                        
+                        executor.submit(process_task, processing_path, code, mode, grade)
                 except FileExistsError:
                     pass
                 except FileNotFoundError:

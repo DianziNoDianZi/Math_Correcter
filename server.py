@@ -165,11 +165,20 @@ def upload_image():
         if mode not in ['quick', 'guided']:
             mode = 'quick'
         
-        # 保存任务模式到文件（这样扫描器也能读取）
+        # 获取年级，默认高中
+        grade = data.get('grade', '10-12')
+        valid_grades = ['1-2', '3-4', '5-6', '7-9', '10-12']
+        if grade not in valid_grades:
+            grade = '10-12'
+        
+        # 保存任务模式和年级信息到文件
         mode_filepath = os.path.join(PENDING_DIR, f"{query_code}_mode.txt")
+        grade_filepath = os.path.join(PENDING_DIR, f"{query_code}_grade.txt")
         try:
             with open(mode_filepath, 'w', encoding='utf-8') as f:
                 f.write(mode)
+            with open(grade_filepath, 'w', encoding='utf-8') as f:
+                f.write(grade)
         except Exception:
             pass
         
@@ -190,7 +199,7 @@ def upload_image():
         with open(filepath, 'wb') as f:
             f.write(decoded)
 
-        logger.info(f"图片已上传，生成查询码: {query_code}，模式: {mode}")
+        logger.info(f"图片已上传，生成查询码: {query_code}，模式: {mode}，年级: {grade}")
         return jsonify({'query_code': query_code}), 200
 
     except Exception as e:
@@ -349,6 +358,56 @@ def get_hints():
         return jsonify({'error': 'Task not found'}), 404
     except Exception as e:
         logger.error(f"获取提示错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/get_knowledge', methods=['POST'])
+def get_knowledge():
+    """获取知识点图谱"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 获取知识点
+        from processor import get_knowledge_points
+        knowledge = get_knowledge_points(query_code)
+        
+        if knowledge is not None:
+            return jsonify({
+                'status': 'ready',
+                'knowledge': knowledge
+            })
+        
+        # 检查任务状态
+        processing_file = None
+        for f in os.listdir(PROCESSING_DIR):
+            if f.startswith(query_code):
+                processing_file = f
+                break
+        
+        if processing_file:
+            return jsonify({'status': 'processing'})
+        
+        pending_file = None
+        for f in os.listdir(PENDING_DIR):
+            if f.startswith(query_code):
+                pending_file = f
+                break
+        
+        if pending_file:
+            return jsonify({'status': 'pending'})
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"获取知识点错误: {e}")
         return jsonify({'error': 'Internal server error'}), 500
 
 from flask import render_template
