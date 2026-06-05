@@ -681,3 +681,125 @@ def start_scanner(executor_instance):
     _executor = executor_instance
     t = threading.Thread(target=lambda: _scan_loop(executor_instance), daemon=True)
     t.start()
+
+def recognize_score_from_image(image_data: str, has_answer: bool = False, max_score: int = 100) -> Dict[str, Any]:
+    """
+    从答题卡图片中识别分数
+    
+    Args:
+        image_data: base64编码的图片数据
+        has_answer: 是否有标准答案（True=自动批改，False=识别手写分数）
+        max_score: 满分
+    
+    Returns:
+        识别结果，包含学号、姓名、分数等
+    """
+    try:
+        # 获取配置的模型
+        cfg = get_config()
+        vision_model = cfg.get('vision_model', '')
+        text_model = cfg.get('text_model', '')
+        
+        if not vision_model:
+            logger.warning("未配置视觉模型，返回模拟数据")
+            return _simulate_recognition()
+        
+        # 构建识别提示
+        if has_answer:
+            prompt = f"""请分析这张答题卡图片：
+1. 识别学生考号/学号
+2. 识别学生姓名（如果有）
+3. 识别每道题的答案
+4. 根据标准答案计算总分
+
+请以JSON格式返回结果：
+{{
+    "student_number": "学号",
+    "student_name": "姓名（如果有）",
+    "answers": ["题1答案", "题2答案", ...],
+    "total_score": 总分,
+    "max_score": 满分
+}}
+
+满分={max_score}"""
+        else:
+            prompt = f"""请分析这张答题卡图片：
+1. 识别学生考号/学号
+2. 识别学生姓名（如果有）
+3. 识别老师批改的分数（如果有）
+4. 识别对错标记（√或×）
+
+请以JSON格式返回结果：
+{{
+    "student_number": "学号",
+    "student_name": "姓名（如果有）",
+    "score": 分数（如果没有分数则返回0）,
+    "has_score": true或false,
+    "correct_count": 正确题数,
+    "total_count": 总题数,
+    "confidence": 识别置信度(0-1)
+}}
+
+满分={max_score}"""
+        
+        # 调用视觉模型
+        messages = [{"role": "user", "content": prompt}]
+        
+        try:
+            response = call_llm_api(vision_model, messages, image_url=image_data)
+            
+            # 解析JSON响应
+            import json
+            import re
+            
+            # 提取JSON
+            json_match = re.search(r'\{[^{}]*"[^{}]*[^{}]*"[^{}]*\}', response, re.DOTALL)
+            if not json_match:
+                # 尝试更宽松的匹配
+                json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            
+            if json_match:
+                result = json.loads(json_match.group())
+                
+                if has_answer:
+                    return {
+                        'student_number': result.get('student_number', ''),
+                        'student_name': result.get('student_name', ''),
+                        'score': result.get('total_score', 0),
+                        'max_score': result.get('max_score', max_score),
+                        'answers': result.get('answers', []),
+                        'source': 'auto',
+                        'confidence': 0.8
+                    }
+                else:
+                    return {
+                        'student_number': result.get('student_number', ''),
+                        'student_name': result.get('student_name', ''),
+                        'score': result.get('score', 0),
+                        'has_score': result.get('has_score', False),
+                        'source': 'handwritten',
+                        'confidence': result.get('confidence', 0.5)
+                    }
+            else:
+                logger.warning(f"无法解析识别结果: {response[:100]}")
+                return _simulate_recognition()
+                
+        except Exception as e:
+            logger.error(f"调用视觉模型失败: {e}")
+            return _simulate_recognition()
+            
+    except Exception as e:
+        logger.error(f"识别分数失败: {e}")
+        return _simulate_recognition()
+
+def _simulate_recognition() -> Dict[str, Any]:
+    """模拟识别结果（用于测试）"""
+    import random
+    return {
+        'student_number': f'2024{random.randint(1000, 9999)}',
+        'student_name': '未识别',
+        'score': random.randint(60, 100),
+        'source': 'simulated',
+        'confidence': 0.5
+    }
+

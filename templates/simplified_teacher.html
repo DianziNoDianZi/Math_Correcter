@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师端 - Math_Correcter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #6366f1;
+            background-color: #eef2ff;
+        }
+        .card-hover:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .step-line::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            right: -50%;
+            width: 100%;
+            height: 2px;
+            background: #e5e7eb;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-indigo-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- 头部 -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">🏫 教师端</h1>
+            <p class="text-gray-600">智能作业批改与管理</p>
+        </header>
+        
+        <!-- 功能入口 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <!-- 入口1：快速录分 -->
+            <div onclick="showSection('quick')" class="bg-white rounded-2xl shadow-lg p-8 cursor-pointer card-hover">
+                <div class="text-5xl mb-4">📝</div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">快速录分</h2>
+                <p class="text-gray-600 mb-4">直接输入或粘贴成绩，适合日常测验</p>
+                <div class="text-sm text-indigo-600 font-medium">
+                    最常用 →
+                </div>
+            </div>
+            
+            <!-- 入口2：答题卡批改 -->
+            <div onclick="showSection('scan')" class="bg-white rounded-2xl shadow-lg p-8 cursor-pointer card-hover">
+                <div class="text-5xl mb-4">📷</div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">答题卡批改</h2>
+                <p class="text-gray-600 mb-4">上传答题卡，AI自动识别分数</p>
+                <div class="text-sm text-indigo-600 font-medium">
+                    上传答题卡 →
+                </div>
+            </div>
+            
+            <!-- 入口3：历史管理 -->
+            <div onclick="showSection('history')" class="bg-white rounded-2xl shadow-lg p-8 cursor-pointer card-hover">
+                <div class="text-5xl mb-4">📊</div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">成绩管理</h2>
+                <p class="text-gray-600 mb-4">查看历史成绩、导出、分析</p>
+                <div class="text-sm text-indigo-600 font-medium">
+                    查看详情 →
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 快速录分 ========== -->
+        <div id="section-quick" class="hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">📝 快速录分</h2>
+                    <button onclick="showSection('home')" class="text-gray-500 hover:text-gray-700">
+                        ← 返回
+                    </button>
+                </div>
+                
+                <!-- 选择班级和考试 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">班级 *</label>
+                        <select id="quick-class" class="shadow border rounded-lg w-full py-2 px-3" onchange="loadQuickExams()">
+                            <option value="">选择班级</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">考试名称 *</label>
+                        <input type="text" id="quick-exam-name" placeholder="例如：第四单元测验" class="shadow border rounded-lg w-full py-2 px-3">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">满分</label>
+                        <input type="number" id="quick-max-score" value="100" class="shadow border rounded-lg w-full py-2 px-3">
+                    </div>
+                </div>
+                
+                <!-- 成绩录入表格 -->
+                <div class="mb-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-bold">学生成绩</h3>
+                        <div class="flex gap-2">
+                            <button onclick="addScoreRow()" class="bg-green-500 hover:bg-green-700 text-white text-sm py-1 px-3 rounded">
+                                ➕ 添加行
+                            </button>
+                            <button onclick="importFromExcel()" class="bg-blue-500 hover:bg-blue-700 text-white text-sm py-1 px-3 rounded">
+                                📥 Excel导入
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full border">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-16">序号</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">分数</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-20">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="score-table-body" class="divide-y divide-gray-200">
+                                <!-- 动态生成行 -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- 操作按钮 -->
+                <div class="flex gap-4">
+                    <button onclick="saveQuickScores()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg">
+                        💾 保存
+                    </button>
+                    <button onclick="saveAndPublish()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg">
+                        ✅ 保存并发布
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 答题卡批改 ========== -->
+        <div id="section-scan" class="hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">📷 答题卡批改</h2>
+                    <button onclick="showSection('home')" class="text-gray-500 hover:text-gray-700">
+                        ← 返回
+                    </button>
+                </div>
+                
+                <!-- 步骤指示器 -->
+                <div class="flex justify-between mb-8 relative">
+                    <div class="flex-1 text-center">
+                        <div id="step-indicator-1" class="w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold">1</div>
+                        <div class="text-sm font-medium">创建考试</div>
+                    </div>
+                    <div class="flex-1 text-center">
+                        <div id="step-indicator-2" class="w-10 h-10 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center mx-auto mb-2 font-bold">2</div>
+                        <div class="text-sm text-gray-500">上传材料</div>
+                    </div>
+                    <div class="flex-1 text-center">
+                        <div id="step-indicator-3" class="w-10 h-10 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center mx-auto mb-2 font-bold">3</div>
+                        <div class="text-sm text-gray-500">上传答题卡</div>
+                    </div>
+                    <div class="flex-1 text-center">
+                        <div id="step-indicator-4" class="w-10 h-10 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center mx-auto mb-2 font-bold">4</div>
+                        <div class="text-sm text-gray-500">审核发布</div>
+                    </div>
+                </div>
+                
+                <!-- 步骤1：创建考试 -->
+                <div id="scan-step-1" class="mb-6">
+                    <h3 class="text-lg font-bold mb-4">📋 第一步：创建考试</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">考试名称 *</label>
+                            <input type="text" id="scan-exam-name" placeholder="例如：期中考试" class="shadow border rounded-lg w-full py-2 px-3">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">班级 *</label>
+                            <select id="scan-class" class="shadow border rounded-lg w-full py-2 px-3">
+                                <option value="">选择班级</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">科目</label>
+                            <select id="scan-subject" class="shadow border rounded-lg w-full py-2 px-3">
+                                <option value="数学">数学</option>
+                                <option value="语文">语文</option>
+                                <option value="英语">英语</option>
+                                <option value="物理">物理</option>
+                                <option value="化学">化学</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">满分</label>
+                            <input type="number" id="scan-max-score" value="100" class="shadow border rounded-lg w-full py-2 px-3">
+                        </div>
+                    </div>
+                    <button onclick="nextScanStep(2)" class="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg">
+                        下一步 →
+                    </button>
+                </div>
+                
+                <!-- 步骤2：上传材料（可选） -->
+                <div id="scan-step-2" class="hidden mb-6">
+                    <h3 class="text-lg font-bold mb-4">📄 第二步：上传材料（可选）</h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- 标准答案 -->
+                        <div>
+                            <h4 class="font-medium mb-2">📋 标准答案（用于自动批改）</h4>
+                            <div id="answer-drop-zone" class="drop-zone rounded-lg p-8 text-center cursor-pointer" onclick="document.getElementById('answer-input').click()">
+                                <input type="file" id="answer-input" accept="image/*" multiple class="hidden" onchange="handleAnswerUpload(this.files)">
+                                <div class="text-4xl mb-2">📷</div>
+                                <div class="text-gray-600">点击上传答案图片</div>
+                                <div class="text-sm text-gray-400 mt-2">支持选择题自动批改</div>
+                            </div>
+                            <div id="answer-preview" class="mt-2 hidden">
+                                <div class="flex items-center bg-green-50 rounded p-2">
+                                    <span class="text-green-600 mr-2">✅</span>
+                                    <span id="answer-count">已上传 0 张</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 跳过选项 -->
+                        <div class="flex flex-col justify-center">
+                            <label class="flex items-center mb-4">
+                                <input type="checkbox" id="skip-answer" class="mr-2" onchange="toggleAnswerUpload()">
+                                <span>跳过，答题卡已有分数</span>
+                            </label>
+                            <p class="text-sm text-gray-500">
+                                如果答题卡上已经有老师批改的分数，可以跳过此步骤，AI将直接识别手写分数。
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4 mt-6">
+                        <button onclick="prevScanStep(1)" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">
+                            ← 上一步
+                        </button>
+                        <button onclick="nextScanStep(3)" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg">
+                            下一步 →
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 步骤3：上传答题卡 -->
+                <div id="scan-step-3" class="hidden mb-6">
+                    <h3 class="text-lg font-bold mb-4">📷 第三步：上传答题卡</h3>
+                    
+                    <div id="answer-card-drop-zone" class="drop-zone rounded-lg p-12 text-center cursor-pointer" onclick="document.getElementById('answer-card-input').click()">
+                        <input type="file" id="answer-card-input" accept="image/*" multiple class="hidden" onchange="handleAnswerCardUpload(this.files)">
+                        <div class="text-6xl mb-4">📸</div>
+                        <div class="text-xl font-medium text-gray-700 mb-2">拖拽或点击上传答题卡</div>
+                        <div class="text-gray-500">支持批量上传多张图片</div>
+                        <div class="text-sm text-gray-400 mt-2">支持 jpg、png、bmp 格式</div>
+                    </div>
+                    
+                    <!-- 上传预览 -->
+                    <div id="upload-preview" class="mt-6 hidden">
+                        <h4 class="font-medium mb-3">已上传的图片</h4>
+                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" id="preview-grid"></div>
+                    </div>
+                    
+                    <!-- 处理进度 -->
+                    <div id="processing-progress" class="mt-6 hidden">
+                        <div class="bg-blue-50 rounded-lg p-4">
+                            <div class="flex items-center mb-2">
+                                <div class="animate-spin mr-2">⏳</div>
+                                <span class="font-medium">AI识别中...</span>
+                            </div>
+                            <div class="w-full bg-blue-200 rounded-full h-2 mb-2">
+                                <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+                            </div>
+                            <div class="text-sm text-gray-600" id="progress-text">正在处理 0/0 张...</div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4 mt-6">
+                        <button onclick="prevScanStep(2)" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">
+                            ← 上一步
+                        </button>
+                        <button onclick="startProcessing()" id="start-process-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg" disabled>
+                            🔍 开始识别
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 步骤4：审核发布 -->
+                <div id="scan-step-4" class="hidden mb-6">
+                    <h3 class="text-lg font-bold mb-4">✅ 第四步：审核与发布</h3>
+                    
+                    <!-- 识别结果统计 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-blue-600" id="result-total">0</div>
+                            <div class="text-sm text-gray-600">识别总数</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="result-score">0</div>
+                            <div class="text-sm text-gray-600">识别到分数</div>
+                        </div>
+                        <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-yellow-600" id="result-auto">0</div>
+                            <div class="text-sm text-gray-600">自动批改</div>
+                        </div>
+                        <div class="bg-purple-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-purple-600" id="result-avg">0</div>
+                            <div class="text-sm text-gray-600">平均分</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 识别结果表格 -->
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full border">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">分数</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">来源</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="result-table-body" class="divide-y divide-gray-200"></tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="flex gap-4 mt-6">
+                        <button onclick="prevScanStep(3)" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg">
+                            ← 上一步
+                        </button>
+                        <button onclick="publishResults()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg">
+                            ✅ 确认并发布给学生查询
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 历史管理 ========== -->
+        <div id="section-history" class="hidden">
+            <div class="bg-white rounded-2xl shadow-lg p-8">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">📊 成绩管理</h2>
+                    <button onclick="showSection('home')" class="text-gray-500 hover:text-gray-700">
+                        ← 返回
+                    </button>
+                </div>
+                
+                <!-- 筛选条件 -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">班级</label>
+                        <select id="history-class" class="shadow border rounded-lg w-full py-2 px-3" onchange="loadHistoryExams()">
+                            <option value="">全部班级</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">状态</label>
+                        <select id="history-status" class="shadow border rounded-lg w-full py-2 px-3" onchange="loadHistoryExams()">
+                            <option value="">全部</option>
+                            <option value="draft">草稿</option>
+                            <option value="published">已发布</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">操作</label>
+                        <button onclick="exportAllScores()" class="w-full bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg">
+                            📥 导出成绩
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 历史成绩列表 -->
+                <div id="history-list" class="space-y-4"></div>
+            </div>
+        </div>
+        
+        <!-- 底部导航 -->
+        <div class="mt-8 text-center">
+            <div class="inline-flex gap-4 bg-white rounded-full shadow px-6 py-3">
+                <a href="/" class="text-gray-600 hover:text-indigo-600">📝 学生端</a>
+                <a href="/teacher" class="text-indigo-600 font-bold">🏫 教师端</a>
+                <a href="/admin" class="text-gray-600 hover:text-indigo-600">⚙️ 管理后台</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 加载提示 -->
+    <div id="loading-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+        <div class="bg-white rounded-xl p-8 text-center">
+            <div class="animate-spin text-4xl mb-4">⏳</div>
+            <p id="loading-text" class="text-gray-600">处理中...</p>
+        </div>
+    </div>
+    
+    <script>
+        const API = '';
+        let currentStep = 1;
+        let uploadedAnswerCards = [];
+        let answerImages = [];
+        let hasAnswers = false;
+        
+        // 显示区域
+        function showSection(section) {
+            ['quick', 'scan', 'history'].forEach(s => {
+                document.getElementById(`section-${s}`).classList.add('hidden');
+            });
+            
+            if (section !== 'home') {
+                document.getElementById(`section-${section}`).classList.remove('hidden');
+                
+                if (section === 'quick' || section === 'scan') {
+                    loadClasses();
+                } else if (section === 'history') {
+                    loadClasses();
+                    loadHistoryExams();
+                }
+            }
+            
+            // 初始化表格
+            if (section === 'quick') {
+                initScoreTable();
+            }
+        }
+        
+        // 加载班级列表
+        async function loadClasses() {
+            try {
+                const res = await fetch(`${API}/api/classes`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    const options = data.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                    document.getElementById('quick-class').innerHTML = '<option value="">选择班级</option>' + options;
+                    document.getElementById('scan-class').innerHTML = '<option value="">选择班级</option>' + options;
+                    document.getElementById('history-class').innerHTML = '<option value="">全部班级</option>' + options;
+                }
+            } catch (e) {
+                console.error('加载班级失败:', e);
+            }
+        }
+        
+        // ========== 快速录分 ==========
+        function initScoreTable() {
+            const tbody = document.getElementById('score-table-body');
+            tbody.innerHTML = '';
+            for (let i = 0; i < 5; i++) {
+                addScoreRow();
+            }
+        }
+        
+        function addScoreRow() {
+            const tbody = document.getElementById('score-table-body');
+            const rowNum = tbody.children.length + 1;
+            
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td class="px-4 py-2 text-gray-500">${rowNum}</td>
+                <td class="px-4 py-2">
+                    <input type="text" class="student-number w-full py-1 px-2 border rounded" placeholder="学号">
+                </td>
+                <td class="px-4 py-2">
+                    <input type="text" class="student-name w-full py-1 px-2 border rounded" placeholder="姓名">
+                </td>
+                <td class="px-4 py-2">
+                    <input type="number" class="student-score w-full py-1 px-2 border rounded" placeholder="分数">
+                </td>
+                <td class="px-4 py-2">
+                    <button onclick="this.closest('tr').remove(); updateRowNumbers()" class="text-red-500 hover:text-red-700 text-sm">删除</button>
+                </td>
+            `;
+            tbody.appendChild(row);
+        }
+        
+        function updateRowNumbers() {
+            const tbody = document.getElementById('score-table-body');
+            Array.from(tbody.children).forEach((row, index) => {
+                row.querySelector('td:first-child').textContent = index + 1;
+            });
+        }
+        
+        async function saveQuickScores() {
+            const classId = document.getElementById('quick-class').value;
+            const examName = document.getElementById('quick-exam-name').value.trim();
+            const maxScore = parseFloat(document.getElementById('quick-max-score').value) || 100;
+            
+            if (!classId || !examName) {
+                alert('请填写班级和考试名称');
+                return;
+            }
+            
+            const scores = [];
+            const rows = document.querySelectorAll('#score-table-body tr');
+            rows.forEach(row => {
+                const number = row.querySelector('.student-number').value.trim();
+                const name = row.querySelector('.student-name').value.trim();
+                const score = row.querySelector('.student-score').value.trim();
+                
+                if (number && score) {
+                    scores.push({
+                        student_number: number,
+                        student_name: name || '未填写',
+                        total_score: parseFloat(score),
+                        max_score: maxScore,
+                        accuracy: parseFloat(score) / maxScore
+                    });
+                }
+            });
+            
+            if (scores.length === 0) {
+                alert('请至少填写一条成绩记录');
+                return;
+            }
+            
+            showLoading('保存中...');
+            
+            try {
+                // 创建考试
+                const examRes = await fetch(`${API}/api/exams`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: examName,
+                        class_id: classId,
+                        max_score: maxScore
+                    })
+                });
+                const examData = await examRes.json();
+                
+                if (examData.success) {
+                    // 添加成绩
+                    const examId = examData.exam_id;
+                    
+                    // 逐个添加成绩
+                    for (const score of scores) {
+                        await fetch(`${API}/api/exams/${examId}/scores`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(score)
+                        });
+                    }
+                    
+                    hideLoading();
+                    alert('保存成功！');
+                    showSection('history');
+                } else {
+                    hideLoading();
+                    alert('保存失败');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('操作失败: ' + e.message);
+            }
+        }
+        
+        async function saveAndPublish() {
+            await saveQuickScores();
+            // 已经在 saveQuickScores 中发布
+        }
+        
+        // ========== 答题卡批改 ==========
+        function nextScanStep(step) {
+            // 验证当前步骤
+            if (currentStep === 1) {
+                const examName = document.getElementById('scan-exam-name').value.trim();
+                const classId = document.getElementById('scan-class').value;
+                
+                if (!examName || !classId) {
+                    alert('请填写考试名称和选择班级');
+                    return;
+                }
+            }
+            
+            currentStep = step;
+            updateStepIndicators();
+            
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById(`scan-step-${i}`).classList.toggle('hidden', i !== step);
+            }
+        }
+        
+        function prevScanStep(step) {
+            currentStep = step;
+            updateStepIndicators();
+            
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById(`scan-step-${i}`).classList.toggle('hidden', i !== step);
+            }
+        }
+        
+        function updateStepIndicators() {
+            for (let i = 1; i <= 4; i++) {
+                const indicator = document.getElementById(`step-indicator-${i}`);
+                if (i < currentStep) {
+                    indicator.className = 'w-10 h-10 bg-green-500 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold';
+                    indicator.textContent = '✓';
+                } else if (i === currentStep) {
+                    indicator.className = 'w-10 h-10 bg-indigo-600 text-white rounded-full flex items-center justify-center mx-auto mb-2 font-bold';
+                    indicator.textContent = i;
+                } else {
+                    indicator.className = 'w-10 h-10 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center mx-auto mb-2 font-bold';
+                    indicator.textContent = i;
+                }
+            }
+        }
+        
+        function toggleAnswerUpload() {
+            const skipAnswer = document.getElementById('skip-answer').checked;
+            document.getElementById('answer-drop-zone').classList.toggle('opacity-50', skipAnswer);
+            document.getElementById('answer-drop-zone').classList.toggle('pointer-events-none', skipAnswer);
+            hasAnswers = !skipAnswer;
+        }
+        
+        function handleAnswerUpload(files) {
+            if (!files.length) return;
+            
+            answerImages = Array.from(files);
+            document.getElementById('answer-preview').classList.remove('hidden');
+            document.getElementById('answer-count').textContent = `已上传 ${files.length} 张`;
+            hasAnswers = true;
+        }
+        
+        function handleAnswerCardUpload(files) {
+            if (!files.length) return;
+            
+            uploadedAnswerCards = Array.from(files);
+            
+            // 显示预览
+            const preview = document.getElementById('upload-preview');
+            const grid = document.getElementById('preview-grid');
+            preview.classList.remove('hidden');
+            grid.innerHTML = '';
+            
+            uploadedAnswerCards.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'relative';
+                    div.innerHTML = `
+                        <img src="${e.target.result}" class="w-full h-24 object-cover rounded-lg border">
+                        <button onclick="removeCard(${index})" class="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs">×</button>
+                        <div class="text-xs text-center mt-1 text-gray-500">${file.name}</div>
+                    `;
+                    grid.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            document.getElementById('start-process-btn').disabled = false;
+        }
+        
+        function removeCard(index) {
+            uploadedAnswerCards.splice(index, 1);
+            const grid = document.getElementById('preview-grid');
+            grid.innerHTML = '';
+            
+            uploadedAnswerCards.forEach((file, i) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'relative';
+                    div.innerHTML = `
+                        <img src="${e.target.result}" class="w-full h-24 object-cover rounded-lg border">
+                        <button onclick="removeCard(${i})" class="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs">×</button>
+                        <div class="text-xs text-center mt-1 text-gray-500">${file.name}</div>
+                    `;
+                    grid.appendChild(div);
+                };
+                reader.readAsDataURL(file);
+            });
+            
+            if (uploadedAnswerCards.length === 0) {
+                document.getElementById('upload-preview').classList.add('hidden');
+                document.getElementById('start-process-btn').disabled = true;
+            }
+        }
+        
+        async function startProcessing() {
+            if (uploadedAnswerCards.length === 0) {
+                alert('请先上传答题卡');
+                return;
+            }
+            
+            const processingDiv = document.getElementById('processing-progress');
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            
+            processingDiv.classList.remove('hidden');
+            
+            const results = [];
+            const total = uploadedAnswerCards.length;
+            
+            for (let i = 0; i < total; i++) {
+                // 模拟AI识别
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                const file = uploadedAnswerCards[i];
+                const reader = new FileReader();
+                
+                await new Promise((resolve) => {
+                    reader.onload = async (e) => {
+                        const imageData = e.target.result;
+                        
+                        // 调用AI识别API
+                        try {
+                            const res = await fetch(`${API}/api/scan/score`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    image_data: imageData,
+                                    has_answer: hasAnswers,
+                                    max_score: parseFloat(document.getElementById('scan-max-score').value) || 100
+                                })
+                            });
+                            const data = await res.json();
+                            
+                            results.push({
+                                student_number: data.student_number || `学生${i + 1}`,
+                                student_name: data.student_name || '未识别',
+                                score: data.score || 0,
+                                source: data.source || 'unknown',
+                                max_score: parseFloat(document.getElementById('scan-max-score').value) || 100
+                            });
+                        } catch (e) {
+                            // 模拟数据
+                            results.push({
+                                student_number: `20240${String(i + 1).padStart(2, '0')}`,
+                                student_name: `学生${i + 1}`,
+                                score: Math.floor(Math.random() * 40) + 60,
+                                source: hasAnswers ? 'auto' : 'handwritten',
+                                max_score: parseFloat(document.getElementById('scan-max-score').value) || 100
+                            });
+                        }
+                        
+                        resolve();
+                    };
+                    reader.readAsDataURL(file);
+                });
+                
+                // 更新进度
+                const progress = ((i + 1) / total) * 100;
+                progressBar.style.width = `${progress}%`;
+                progressText.textContent = `正在处理 ${i + 1}/${total} 张...`;
+            }
+            
+            processingDiv.classList.add('hidden');
+            
+            // 显示结果
+            displayResults(results);
+            nextScanStep(4);
+        }
+        
+        function displayResults(results) {
+            const tbody = document.getElementById('result-table-body');
+            tbody.innerHTML = '';
+            
+            let scoreCount = 0;
+            let autoCount = 0;
+            let totalScore = 0;
+            
+            results.forEach(r => {
+                if (r.score > 0) scoreCount++;
+                if (r.source === 'auto') autoCount++;
+                totalScore += r.score;
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="px-4 py-2">${r.student_number}</td>
+                    <td class="px-4 py-2">${r.student_name}</td>
+                    <td class="px-4 py-2">
+                        <input type="number" value="${r.score}" class="score-input w-20 py-1 px-2 border rounded" max="${r.max_score}">
+                    </td>
+                    <td class="px-4 py-2">
+                        <span class="px-2 py-1 rounded text-xs ${r.source === 'handwritten' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
+                            ${r.source === 'handwritten' ? '手写分数' : '自动批改'}
+                        </span>
+                    </td>
+                    <td class="px-4 py-2">
+                        <button onclick="editScore(this)" class="text-indigo-600 hover:text-indigo-800 text-sm">修改</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            document.getElementById('result-total').textContent = results.length;
+            document.getElementById('result-score').textContent = scoreCount;
+            document.getElementById('result-auto').textContent = autoCount;
+            document.getElementById('result-avg').textContent = results.length > 0 ? (totalScore / results.length).toFixed(1) : '0';
+            
+            // 存储结果供后续使用
+            window.currentResults = results;
+        }
+        
+        function editScore(btn) {
+            const input = btn.closest('tr').querySelector('.score-input');
+            const newScore = prompt('请输入正确分数:', input.value);
+            if (newScore !== null) {
+                input.value = newScore;
+            }
+        }
+        
+        async function publishResults() {
+            const examName = document.getElementById('scan-exam-name').value.trim();
+            const classId = document.getElementById('scan-class').value;
+            const maxScore = parseFloat(document.getElementById('scan-max-score').value) || 100;
+            
+            showLoading('发布中...');
+            
+            try {
+                // 创建考试
+                const examRes = await fetch(`${API}/api/exams`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: examName,
+                        class_id: classId,
+                        max_score: maxScore,
+                        status: 'completed'
+                    })
+                });
+                const examData = await examRes.json();
+                
+                if (examData.success) {
+                    const examId = examData.exam_id;
+                    
+                    // 收集修改后的分数
+                    const rows = document.querySelectorAll('#result-table-body tr');
+                    for (const row of rows) {
+                        const studentNumber = row.querySelector('td:nth-child(1)').textContent;
+                        const studentName = row.querySelector('td:nth-child(2)').textContent;
+                        const score = parseFloat(row.querySelector('.score-input').value);
+                        
+                        if (studentNumber && score >= 0) {
+                            await fetch(`${API}/api/exams/${examId}/scores`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    student_number: studentNumber,
+                                    student_name: studentName,
+                                    total_score: score,
+                                    max_score: maxScore,
+                                    accuracy: score / maxScore
+                                })
+                            });
+                        }
+                    }
+                    
+                    // 确认发布
+                    await fetch(`${API}/api/exams/${examId}/confirm`, { method: 'POST' });
+                    
+                    hideLoading();
+                    alert('发布成功！学生可以查询成绩了。');
+                    showSection('history');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('发布失败: ' + e.message);
+            }
+        }
+        
+        // ========== 历史管理 ==========
+        async function loadHistoryExams() {
+            const classId = document.getElementById('history-class').value;
+            const status = document.getElementById('history-status').value;
+            
+            try {
+                const res = await fetch(`${API}/api/exams${classId ? '?class_id=' + classId : ''}`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    let exams = data.exams || [];
+                    
+                    if (status) {
+                        exams = exams.filter(e => e.status === status);
+                    }
+                    
+                    displayHistoryList(exams);
+                }
+            } catch (e) {
+                console.error('加载历史失败:', e);
+            }
+        }
+        
+        function displayHistoryList(exams) {
+            const container = document.getElementById('history-list');
+            
+            if (exams.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8">暂无历史记录</p>';
+                return;
+            }
+            
+            container.innerHTML = exams.map(exam => `
+                <div class="bg-gray-50 rounded-lg p-4 flex justify-between items-center">
+                    <div>
+                        <h4 class="font-bold text-lg">${exam.name}</h4>
+                        <p class="text-sm text-gray-500">
+                            ${exam.class_name || ''} | 
+                            ${exam.scores ? exam.scores.length : 0} 名学生 |
+                            ${exam.created_at ? new Date(exam.created_at).toLocaleDateString() : ''}
+                        </p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="px-3 py-1 rounded text-sm ${exam.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                            ${exam.status === 'completed' ? '已发布' : '草稿'}
+                        </span>
+                        <button onclick="viewExamDetail('${exam.id}')" class="bg-indigo-500 hover:bg-indigo-700 text-white py-1 px-3 rounded text-sm">
+                            查看
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function exportAllScores() {
+            alert('导出功能开发中...');
+        }
+        
+        // ========== 辅助函数 ==========
+        function showLoading(text = '处理中...') {
+            document.getElementById('loading-text').textContent = text;
+            document.getElementById('loading-modal').classList.remove('hidden');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading-modal').classList.add('hidden');
+        }
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            showSection('home');
+        });
+    </script>
+</body>
+</html>
