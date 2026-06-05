@@ -11,16 +11,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from config import get_config, get_models_dict
+from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR, PAUSE_FLAG_PATH, CANCELLED_DIR
 from datetime import datetime
 import shutil
-
-# 目录常量，与原实现保持一致
-UPLOAD_FOLDER = 'uploads'
-PENDING_DIR = 'pending'
-PROCESSING_DIR = 'processing'
-RESULTS_DIR = 'results'
-PAUSE_FLAG_PATH = 'paused.flag'
-CANCELLED_DIR = 'cancelled'
 _start_time = datetime.utcnow()
 
 logger = logging.getLogger(__name__)

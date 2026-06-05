@@ -10,7 +10,17 @@ import os
 import yaml
 import logging
 
+logger = logging.getLogger(__name__)
+
 CONFIG_FILE = 'config.yaml'
+
+# 目录常量
+UPLOAD_FOLDER = 'uploads'
+PENDING_DIR = 'pending'
+PROCESSING_DIR = 'processing'
+RESULTS_DIR = 'results'
+PAUSE_FLAG_PATH = 'paused.flag'
+CANCELLED_DIR = 'cancelled'
 
 # 默认配置（初次创建时使用）
 DEFAULT_CONFIG = {
@@ -49,10 +59,19 @@ def _reload_config():
     # 如果没有配置文件，创建默认配置并写入磁盘
     if not os.path.exists(CONFIG_FILE):
         _config = DEFAULT_CONFIG.copy()
-        _save_config(_config)
+        try:
+            _save_config(_config)
+            logger.info(f"Created default config file at {CONFIG_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to create default config: {e}")
     else:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as e:
+            logger.error(f"Failed to load config file {CONFIG_FILE}: {e}, using default config")
+            data = {}
+        
         _config = {
             'default_model': data.get('default_model', DEFAULT_CONFIG['default_model']),
             'vision_model': data.get('vision_model', DEFAULT_CONFIG['vision_model']),
@@ -64,13 +83,24 @@ def _reload_config():
         # 兼容性：确保 models 字段存在
         if not isinstance(_config.get('models', []), list):
             _config['models'] = []
-        _save_config(_config)  # 保证磁盘与内存一致性
+        try:
+            _save_config(_config)  # 保证磁盘与内存一致性
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
     # 构建模型字典
     _models_dict = {m['name']: m for m in _config.get('models', [])}
 
 def _save_config(cfg):
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True)
+    try:
+        # 确保目录存在
+        dir_name = os.path.dirname(CONFIG_FILE)
+        if dir_name and not os.path.exists(dir_name):
+            os.makedirs(dir_name, exist_ok=True)
+        with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+            yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True)
+    except Exception as e:
+        logger.error(f"Failed to write config to {CONFIG_FILE}: {e}")
+        raise
 
 def get_config():
     global _config

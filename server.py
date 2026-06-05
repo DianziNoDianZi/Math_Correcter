@@ -15,6 +15,7 @@ from flask import send_from_directory
 
 import processor
 from config import get_config, ensure_defaults, save_config, get_models_dict
+from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR
 from processor import _parse_pending_filename, call_llm_api, generate_explanation, call_tts_api
 
 # IP封禁列表和请求统计
@@ -26,6 +27,14 @@ models_dict = get_models_dict()
 
 ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
 ADMIN_PASS = os.environ.get('ADMIN_PASS', 'changeme')
+SECRET_KEY = os.environ.get('SECRET_KEY', None)
+
+# 警告用户修改默认密码
+if ADMIN_USER == 'admin' or ADMIN_PASS == 'changeme':
+    print('WARNING: Using default admin credentials! Please set ADMIN_USER and ADMIN_PASS environment variables!')
+if SECRET_KEY is None:
+    print('WARNING: Using default secret key! Please set SECRET_KEY environment variable!')
+    SECRET_KEY = 'dev-secret-key-change-in-production'
 
 def admin_required(f):
     @wraps(f)
@@ -44,17 +53,24 @@ def ensure_ascii(s, field_name):
     except UnicodeEncodeError:
         raise ValueError(f"{field_name} 只能包含英文字母、数字和符号（ASCII字符），请检查是否有中文或特殊符号。")
 
-UPLOAD_FOLDER = 'uploads'
-PENDING_DIR = 'pending'
-PROCESSING_DIR = 'processing'
-RESULTS_DIR = 'results'
-CONFIG_FILE = 'config.yaml'
+def is_safe_filename(filename):
+    """简单的文件名安全检查"""
+    if not filename:
+        return False
+    # 防止路径遍历攻击
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return False
+    return True
 
+def is_valid_base64_image(data):
+    """验证 base64 图片数据"""
+    if not data or not isinstance(data, str):
+        return False
+    # 简单检查格式
+    if not data.startswith('data:image/'):
+        return False
+    return True
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PENDING_DIR, exist_ok=True)
-os.makedirs(PROCESSING_DIR, exist_ok=True)
-os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
 logging.basicConfig(
@@ -67,9 +83,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 确保所有必要的目录存在
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PENDING_DIR, exist_ok=True)
+os.makedirs(PROCESSING_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.secret_key = 'your-secret-key-here'  # 用于 flash 消息
+app.secret_key = SECRET_KEY
+
+# 添加安全头
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 SERVER_START_TIME = time.time()
 
@@ -115,10 +145,16 @@ def upload_image():
         data = request.get_json()
         if not data or 'image_data' not in data:
             return jsonify({'error': 'No image data provided'}), 400
+        
+        image_data = data['image_data']
+        if not is_valid_base64_image(image_data):
+            return jsonify({'error': 'Invalid image data format'}), 400
 
         query_code = str(uuid.uuid4())
-        image_data = data['image_data']
         extension = image_data.split(';')[0].split('/')[-1]
+        # 验证扩展名
+        if extension not in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+            return jsonify({'error': 'Unsupported image format'}), 400
         # 支持可选的优先级，默认 0，越小优先级越高
         priority = int(data.get('priority', 0))
         # 文件名形如: 00000001_<query_code>.<ext>
@@ -126,8 +162,17 @@ def upload_image():
         filepath = os.path.join(PENDING_DIR, filename)
 
         image_data = image_data.split(',')[1]
+        # 验证base64数据
+        try:
+            decoded = base64.b64decode(image_data, validate=True)
+            # 限制文件大小，比如 10MB
+            if len(decoded) > 10 * 1024 * 1024:
+                return jsonify({'error': 'Image too large (max 10MB)'}), 413
+        except Exception:
+            return jsonify({'error': 'Invalid base64 data'}), 400
+        
         with open(filepath, 'wb') as f:
-            f.write(base64.b64decode(image_data))
+            f.write(decoded)
 
         logger.info(f"图片已上传，生成查询码: {query_code}")
         return jsonify({'query_code': query_code}), 200
@@ -145,6 +190,12 @@ def query_status():
             return jsonify({'error': 'Invalid request format'}), 400
 
         query_code = data['query_code']
+        # 验证查询码格式，防止路径遍历
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        # 限制查询码长度
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
 
         result_file = None
         for f in os.listdir(RESULTS_DIR):
@@ -191,6 +242,12 @@ def generate_audio_api():
             return jsonify({'error': 'Invalid request format'}), 400
 
         query_code = data['query_code']
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
         cfg = get_config()
         tts_cfg = cfg.get('tts', {})
 
@@ -218,6 +275,12 @@ def generate_audio_api():
 @app.route('/results/<path:filename>')
 def serve_audio(filename):
     """提供音频文件"""
+    # 防止路径遍历攻击
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+    # 只允许访问wav文件
+    if not filename.endswith('.wav') and not filename.endswith('.txt'):
+        return jsonify({'error': 'Invalid file type'}), 400
     return send_from_directory(RESULTS_DIR, filename)
 
 from flask import render_template
@@ -333,6 +396,7 @@ def _collect_tasks():
     except Exception:
         pass
     return tasks
+@app.route('/admin/api/summary', methods=['GET'])
 @admin_required
 def admin_api_summary():
     cfg = get_config()
@@ -392,9 +456,8 @@ def set_models():
         else:
             flash('所选模型不存在', 'error')
     else:
-        flash('请选择两个模型', 'error')
+            flash('请选择两个模型', 'error')
     return redirect(url_for('admin_dashboard'))
-    return redirect(url_for('admin'))
 
 @app.route('/admin/customization', methods=['GET', 'POST'])
 @admin_required
