@@ -682,14 +682,17 @@ def start_scanner(executor_instance):
     t = threading.Thread(target=lambda: _scan_loop(executor_instance), daemon=True)
     t.start()
 
-def recognize_score_from_image(image_data: str, has_answer: bool = False, max_score: int = 100) -> Dict[str, Any]:
+def recognize_score_from_image(image_data: str, has_answer: bool = False, max_score: int = 100, 
+                                paper_data: str = None, answer_data: str = None) -> Dict[str, Any]:
     """
     从答题卡图片中识别分数
     
     Args:
-        image_data: base64编码的图片数据
+        image_data: base64编码的答题卡图片数据
         has_answer: 是否有标准答案（True=自动批改，False=识别手写分数）
         max_score: 满分
+        paper_data: base64编码的原试卷图片数据（可选）
+        answer_data: base64编码的标准答案图片数据（可选）
     
     Returns:
         识别结果，包含学号、姓名、分数等
@@ -698,15 +701,46 @@ def recognize_score_from_image(image_data: str, has_answer: bool = False, max_sc
         # 获取配置的模型
         cfg = get_config()
         vision_model = cfg.get('vision_model', '')
-        text_model = cfg.get('text_model', '')
         
         if not vision_model:
             logger.warning("未配置视觉模型，返回模拟数据")
             return _simulate_recognition()
         
-        # 构建识别提示
-        if has_answer:
-            prompt = f"""请分析这张答题卡图片：
+        # 构建识别提示（根据上传的材料）
+        if paper_data and answer_data:
+            # 完整模式：原试卷 + 标准答案 + 答题卡
+            prompt = f"""请分析这张答题卡图片，结合已上传的原试卷和标准答案进行批改：
+
+**分析任务：**
+1. 识别学生考号/学号
+2. 识别学生姓名（如果有）
+3. 识别每道题的答案
+4. 根据标准答案计算每题的得分
+5. 计算总分
+
+**批改规则：**
+- 选择题：完全匹配得满分，否则0分
+- 填空题：关键词匹配给分
+- 解答题：根据步骤给分
+
+请以JSON格式返回结果：
+{{
+    "student_number": "学号",
+    "student_name": "姓名（如果有）",
+    "results": [
+        {{"number": 1, "answer": "学生答案", "correct": true/false, "score": 得分, "max_score": 满分}},
+        ...
+    ],
+    "total_score": 总分,
+    "max_score": 满分
+}}
+
+满分={max_score}"""
+        elif answer_data:
+            # 标准答案模式：标准答案 + 答题卡
+            prompt = f"""请分析这张答题卡图片，结合标准答案进行批改：
+
+**分析任务：**
 1. 识别学生考号/学号
 2. 识别学生姓名（如果有）
 3. 识别每道题的答案
@@ -722,11 +756,35 @@ def recognize_score_from_image(image_data: str, has_answer: bool = False, max_sc
 }}
 
 满分={max_score}"""
-        else:
+        elif has_answer:
+            # 自动批改模式：只有答题卡，通过AI自动判断对错
             prompt = f"""请分析这张答题卡图片：
+
+**分析任务：**
 1. 识别学生考号/学号
 2. 识别学生姓名（如果有）
-3. 识别老师批改的分数（如果有）
+3. 尝试判断每道题的答案
+4. 根据常见正确答案计算总分
+
+请以JSON格式返回结果：
+{{
+    "student_number": "学号",
+    "student_name": "姓名（如果有）",
+    "answers": ["题1答案", "题2答案", ...],
+    "confidence": 判断置信度(0-1),
+    "total_score": 估算总分,
+    "max_score": 满分
+}}
+
+满分={max_score}"""
+        else:
+            # 手写分数模式：识别答题卡上的手写分数
+            prompt = f"""请分析这张答题卡图片：
+
+**分析任务：**
+1. 识别学生考号/学号
+2. 识别学生姓名（如果有）
+3. 识别老师批改的分数（通常在题目旁边或试卷顶部）
 4. 识别对错标记（√或×）
 
 请以JSON格式返回结果：

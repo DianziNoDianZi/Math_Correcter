@@ -1994,36 +1994,53 @@ def get_student_exam_detail(student_number, exam_id):
 def scan_answer_card():
     """
     识别答题卡上的分数
-    支持两种模式：
-    1. 有标准答案：自动批改
-    2. 无标准答案：识别手写分数
+    支持多种模式：
+    1. 原试卷 + 标准答案 + 答题卡：最精确的批改
+    2. 标准答案 + 答题卡：自动批改
+    3. 答题卡已有分数：识别手写分数
     """
     try:
         data = request.get_json()
         if not data:
             return jsonify({'error': '缺少数据'}), 400
         
-        image_data = data.get('image_data')
-        has_answer = data.get('has_answer', False)
+        image_data = data.get('image_data')  # 答题卡
+        paper_data = data.get('paper_data')    # 原试卷（可选）
+        answer_data = data.get('answer_data')  # 标准答案（可选）
         max_score = data.get('max_score', 100)
         
         if not image_data:
-            return jsonify({'error': '缺少图片数据'}), 400
+            return jsonify({'error': '缺少答题卡图片'}), 400
+        
+        # 判断模式
+        has_answer = bool(answer_data)
+        has_paper = bool(paper_data)
         
         # 调用AI识别
         try:
             result = processor.recognize_score_from_image(
                 image_data, 
                 has_answer=has_answer,
-                max_score=max_score
+                max_score=max_score,
+                paper_data=paper_data,
+                answer_data=answer_data
             )
+            
+            # 判断识别来源
+            if has_paper and has_answer:
+                source = 'full'
+            elif has_answer:
+                source = 'auto'
+            else:
+                source = 'handwritten'
+            
             return jsonify({
                 'success': True,
                 'student_number': result.get('student_number'),
                 'student_name': result.get('student_name'),
-                'score': result.get('score', 0),
-                'source': result.get('source', 'unknown'),
-                'confidence': result.get('confidence', 0)
+                'score': result.get('score', result.get('total_score', 0)),
+                'source': source,
+                'confidence': result.get('confidence', 0.8)
             })
         except Exception as e:
             logger.error(f'AI识别失败: {e}')

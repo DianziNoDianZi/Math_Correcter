@@ -207,37 +207,54 @@
                     </button>
                 </div>
                 
-                <!-- 步骤2：上传材料（可选） -->
+                <!-- 步骤2：上传材料 -->
                 <div id="scan-step-2" class="hidden mb-6">
-                    <h3 class="text-lg font-bold mb-4">📄 第二步：上传材料（可选）</h3>
+                    <h3 class="text-lg font-bold mb-4">📄 第二步：上传材料</h3>
                     
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- 标准答案 -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <!-- 原试卷 -->
                         <div>
-                            <h4 class="font-medium mb-2">📋 标准答案（用于自动批改）</h4>
-                            <div id="answer-drop-zone" class="drop-zone rounded-lg p-8 text-center cursor-pointer" onclick="document.getElementById('answer-input').click()">
-                                <input type="file" id="answer-input" accept="image/*" multiple class="hidden" onchange="handleAnswerUpload(this.files)">
-                                <div class="text-4xl mb-2">📷</div>
-                                <div class="text-gray-600">点击上传答案图片</div>
-                                <div class="text-sm text-gray-400 mt-2">支持选择题自动批改</div>
+                            <h4 class="font-medium mb-2">📄 原试卷（识别题目）</h4>
+                            <p class="text-xs text-gray-500 mb-2">上传包含题目的试卷图片，用于识别题目</p>
+                            <div id="paper-drop-zone" class="drop-zone rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('paper-input').click()">
+                                <input type="file" id="paper-input" accept="image/*" multiple class="hidden" onchange="handlePaperUpload(this.files)">
+                                <div class="text-3xl mb-2">📷</div>
+                                <div class="text-sm text-gray-600">点击上传试卷</div>
                             </div>
-                            <div id="answer-preview" class="mt-2 hidden">
-                                <div class="flex items-center bg-green-50 rounded p-2">
-                                    <span class="text-green-600 mr-2">✅</span>
-                                    <span id="answer-count">已上传 0 张</span>
+                            <div id="paper-preview" class="mt-2 hidden">
+                                <div class="flex items-center bg-blue-50 rounded p-2">
+                                    <span class="text-blue-600 mr-2">📄</span>
+                                    <span id="paper-count" class="text-sm">已上传 0 张</span>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- 跳过选项 -->
-                        <div class="flex flex-col justify-center">
-                            <label class="flex items-center mb-4">
-                                <input type="checkbox" id="skip-answer" class="mr-2" onchange="toggleAnswerUpload()">
-                                <span>跳过，答题卡已有分数</span>
-                            </label>
-                            <p class="text-sm text-gray-500">
-                                如果答题卡上已经有老师批改的分数，可以跳过此步骤，AI将直接识别手写分数。
-                            </p>
+                        <!-- 标准答案 -->
+                        <div>
+                            <h4 class="font-medium mb-2">📋 标准答案</h4>
+                            <p class="text-xs text-gray-500 mb-2">上传答案图片，用于自动批改选择题</p>
+                            <div id="answer-drop-zone" class="drop-zone rounded-lg p-6 text-center cursor-pointer" onclick="document.getElementById('answer-input').click()">
+                                <input type="file" id="answer-input" accept="image/*" multiple class="hidden" onchange="handleAnswerUpload(this.files)">
+                                <div class="text-3xl mb-2">📷</div>
+                                <div class="text-sm text-gray-600">点击上传答案</div>
+                            </div>
+                            <div id="answer-preview" class="mt-2 hidden">
+                                <div class="flex items-center bg-green-50 rounded p-2">
+                                    <span class="text-green-600 mr-2">✅</span>
+                                    <span id="answer-count" class="text-sm">已上传 0 张</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 说明 -->
+                        <div class="bg-yellow-50 rounded-lg p-4">
+                            <h4 class="font-medium mb-2 text-yellow-800">💡 说明</h4>
+                            <ul class="text-sm text-yellow-700 space-y-2">
+                                <li>• <strong>原试卷</strong>：帮助AI更准确识别题目</li>
+                                <li>• <strong>标准答案</strong>：用于自动批改选择题</li>
+                                <li>• <strong>答题卡</strong>：必须上传，用于识别学生答案</li>
+                                <li class="text-yellow-600">• 至少上传答题卡，其他可选</li>
+                            </ul>
                         </div>
                     </div>
                     
@@ -246,7 +263,7 @@
                             ← 上一步
                         </button>
                         <button onclick="nextScanStep(3)" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg">
-                            下一步 →
+                            下一步：上传答题卡 →
                         </button>
                     </div>
                 </div>
@@ -407,7 +424,9 @@
         let currentStep = 1;
         let uploadedAnswerCards = [];
         let answerImages = [];
+        let paperImages = [];
         let hasAnswers = false;
+        let hasPaper = false;
         
         // 显示区域
         function showSection(section) {
@@ -613,22 +632,25 @@
             }
         }
         
-        function toggleAnswerUpload() {
-            const skipAnswer = document.getElementById('skip-answer').checked;
-            document.getElementById('answer-drop-zone').classList.toggle('opacity-50', skipAnswer);
-            document.getElementById('answer-drop-zone').classList.toggle('pointer-events-none', skipAnswer);
-            hasAnswers = !skipAnswer;
-        }
         
         function handleAnswerUpload(files) {
             if (!files.length) return;
-            
+
             answerImages = Array.from(files);
             document.getElementById('answer-preview').classList.remove('hidden');
             document.getElementById('answer-count').textContent = `已上传 ${files.length} 张`;
             hasAnswers = true;
         }
         
+        function handlePaperUpload(files) {
+            if (!files.length) return;
+
+            paperImages = Array.from(files);
+            document.getElementById('paper-preview').classList.remove('hidden');
+            document.getElementById('paper-count').textContent = `已上传 ${files.length} 张`;
+            hasPaper = true;
+        }
+
         function handleAnswerCardUpload(files) {
             if (!files.length) return;
             
@@ -765,12 +787,19 @@
             
             let scoreCount = 0;
             let autoCount = 0;
+            let fullCount = 0;
             let totalScore = 0;
             
             results.forEach(r => {
                 if (r.score > 0) scoreCount++;
                 if (r.source === 'auto') autoCount++;
+                if (r.source === 'full') fullCount++;
                 totalScore += r.score;
+                
+                const sourceLabel = r.source === 'full' ? '精确批改' : 
+                                   r.source === 'auto' ? '自动批改' : '手写分数';
+                const sourceClass = r.source === 'full' ? 'bg-purple-100 text-purple-800' : 
+                                   r.source === 'auto' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800';
                 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
@@ -780,8 +809,8 @@
                         <input type="number" value="${r.score}" class="score-input w-20 py-1 px-2 border rounded" max="${r.max_score}">
                     </td>
                     <td class="px-4 py-2">
-                        <span class="px-2 py-1 rounded text-xs ${r.source === 'handwritten' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}">
-                            ${r.source === 'handwritten' ? '手写分数' : '自动批改'}
+                        <span class="px-2 py-1 rounded text-xs ${sourceClass}">
+                            ${sourceLabel}
                         </span>
                     </td>
                     <td class="px-4 py-2">
@@ -793,7 +822,7 @@
             
             document.getElementById('result-total').textContent = results.length;
             document.getElementById('result-score').textContent = scoreCount;
-            document.getElementById('result-auto').textContent = autoCount;
+            document.getElementById('result-auto').textContent = autoCount + fullCount;
             document.getElementById('result-avg').textContent = results.length > 0 ? (totalScore / results.length).toFixed(1) : '0';
             
             // 存储结果供后续使用
