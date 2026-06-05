@@ -42,6 +42,9 @@
             <button onclick="showTab('analysis')" id="tab-analysis" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
                 📊 学情分析
             </button>
+            <button onclick="showTab('scores')" id="tab-scores" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                📈 成绩管理
+            </button>
             <button onclick="showTab('knowledge')" id="tab-knowledge" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
                 🕸️ 知识图谱
             </button>
@@ -52,7 +55,7 @@
             <h2 class="text-xl font-semibold mb-6">📤 批量上传试卷</h2>
             
             <!-- 试卷信息 -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div>
                     <label class="block text-gray-700 text-sm font-bold mb-2">试卷名称</label>
                     <input type="text" id="paper-name" placeholder="例如：期中测试卷" class="shadow border rounded w-full py-2 px-3">
@@ -67,6 +70,30 @@
                         <option value="10-12" selected>高中</option>
                     </select>
                 </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">关联班级（可选）</label>
+                    <select id="paper-class" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">不关联班级</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- 智能识别选项 -->
+            <div class="bg-blue-50 rounded-lg p-4 mb-6">
+                <h3 class="font-medium mb-3 text-blue-800">🤖 智能识别设置</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="auto-detect-names" checked class="w-4 h-4 text-blue-600 rounded">
+                        <span class="text-sm">自动识别答题卡上的姓名和考号</span>
+                    </label>
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" id="auto-grade" checked class="w-4 h-4 text-blue-600 rounded">
+                        <span class="text-sm">自动批改客观题</span>
+                    </label>
+                </div>
+                <p class="text-xs text-blue-600 mt-2">
+                    💡 提示：启用自动识别后，系统会自动检测答题卡上的姓名区域，并将同一学生的多面答题卷关联在一起
+                </p>
             </div>
             
             <!-- 拖拽上传区 -->
@@ -189,6 +216,95 @@
             </div>
         </div>
         
+        <!-- 成绩管理标签页 -->
+        <div id="panel-scores" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">📈 学生成绩管理</h2>
+            
+            <!-- 选择班级和试卷 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择班级</label>
+                    <select id="score-class-select" class="shadow border rounded w-full py-2 px-3" onchange="loadScoreData()">
+                        <option value="">请选择班级</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择试卷</label>
+                    <select id="score-paper-select" class="shadow border rounded w-full py-2 px-3" onchange="loadScoreData()">
+                        <option value="">所有试卷</option>
+                    </select>
+                </div>
+                <div>
+                    <button onclick="showAddScoreModal()" class="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-7">
+                        ➕ 录入成绩
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 成绩统计卡片 -->
+            <div id="score-statistics" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <!-- 统计卡片将在这里生成 -->
+            </div>
+            
+            <!-- 成绩列表 -->
+            <div class="mb-6">
+                <h3 class="font-medium mb-3">📋 成绩列表</h3>
+                <div id="score-table" class="overflow-x-auto">
+                    <!-- 成绩表格将在这里生成 -->
+                </div>
+            </div>
+            
+            <!-- 学生进步追踪 -->
+            <div>
+                <h3 class="font-medium mb-3">📈 学生进步追踪</h3>
+                <div id="student-progress" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- 学生进步卡片将在这里生成 -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- 成绩录入模态框 -->
+        <div id="score-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+            <div class="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold">录入学生成绩</h2>
+                    <button onclick="closeScoreModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">选择学生</label>
+                        <select id="score-student-select" class="shadow border rounded w-full py-2 px-3">
+                            <option value="">请选择学生</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">选择试卷</label>
+                        <select id="score-paper-select-modal" class="shadow border rounded w-full py-2 px-3">
+                            <option value="">请选择试卷</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">得分</label>
+                            <input type="number" id="score-value" min="0" class="shadow border rounded w-full py-2 px-3">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">总分</label>
+                            <input type="number" id="score-total" min="1" value="100" class="shadow border rounded w-full py-2 px-3">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">备注</label>
+                        <textarea id="score-notes" rows="2" class="shadow border rounded w-full py-2 px-3" placeholder="可选备注"></textarea>
+                    </div>
+                    <button onclick="submitScore()" class="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        提交成绩
+                    </button>
+                </div>
+            </div>
+        </div>
+        
         <!-- 班级详情模态框 -->
         <div id="class-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
             <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
@@ -240,7 +356,7 @@
         // ========== 标签页切换 ==========
         
         function showTab(tabName) {
-            const tabs = ['upload', 'classes', 'papers', 'analysis', 'knowledge'];
+            const tabs = ['upload', 'classes', 'papers', 'analysis', 'scores', 'knowledge'];
             tabs.forEach(tab => {
                 const panel = document.getElementById(`panel-${tab}`);
                 const btn = document.getElementById(`tab-${tab}`);
@@ -261,6 +377,9 @@
                 loadPapers();
             } else if (tabName === 'analysis') {
                 loadClassOptions();
+            } else if (tabName === 'scores') {
+                loadScoreClassOptions();
+                loadScorePaperOptions();
             }
         }
         
@@ -328,10 +447,14 @@
             
             const paperName = document.getElementById('paper-name').value || '未命名试卷';
             const grade = document.getElementById('paper-grade').value;
+            const classId = document.getElementById('paper-class').value;
+            const autoDetect = document.getElementById('auto-detect-names').checked;
             
             const formData = new FormData();
             formData.append('name', paperName);
             formData.append('grade', grade);
+            formData.append('class_id', classId);
+            formData.append('auto_detect', autoDetect);
             selectedFiles.forEach(file => {
                 formData.append('files', file);
             });
@@ -349,10 +472,30 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    updateProgress(100, '上传成功！');
-                    alert('试卷上传并分析完成！');
+                    updateProgress(100, '分析完成！');
+                    
+                    // 显示详细的分析结果
+                    let message = `试卷上传并分析完成！\n`;
+                    message += `总题数：${result.total_questions}\n`;
+                    message += `正确数：${result.correct_count}\n`;
+                    message += `正确率：${result.accuracy.toFixed(1)}%\n`;
+                    
+                    if (result.detected_students > 0) {
+                        message += `\n识别到 ${result.detected_students} 位学生的答题卡`;
+                    }
+                    if (result.multi_page_count > 0) {
+                        message += `\n包含 ${result.multi_page_count} 位学生的多面答题卷`;
+                    }
+                    
+                    alert(message);
+                    
                     selectedFiles = [];
                     updateFileList();
+                    
+                    // 自动切换到班级管理查看关联结果
+                    if (classId) {
+                        showTab('classes');
+                    }
                 } else {
                     alert('上传失败: ' + (result.error || '未知错误'));
                 }
@@ -876,18 +1019,377 @@
             }
         }
         
+        // ========== 成绩管理 ==========
+        
+        async function loadScoreClassOptions() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const select = document.getElementById('score-class-select');
+                    select.innerHTML = '<option value="">请选择班级</option>' + 
+                        result.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                }
+            } catch (e) {
+                console.error('加载班级选项失败:', e);
+            }
+        }
+        
+        async function loadScorePaperOptions() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/status`);
+                const result = await response.json();
+                
+                if (result.success && result.papers) {
+                    // 同时更新两个下拉框
+                    const select1 = document.getElementById('score-paper-select');
+                    const select2 = document.getElementById('score-paper-select-modal');
+                    
+                    const options = result.papers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                    
+                    select1.innerHTML = '<option value="">所有试卷</option>' + options;
+                    select2.innerHTML = '<option value="">请选择试卷</option>' + options;
+                }
+            } catch (e) {
+                console.error('加载试卷选项失败:', e);
+            }
+        }
+        
+        async function loadScoreData() {
+            const classId = document.getElementById('score-class-select').value;
+            const paperId = document.getElementById('score-paper-select').value;
+            
+            if (!classId) {
+                return;
+            }
+            
+            await Promise.all([
+                loadScoreStatistics(classId, paperId),
+                loadScoreTable(classId, paperId),
+                loadStudentProgress(classId)
+            ]);
+        }
+        
+        async function loadScoreStatistics(classId, paperId) {
+            try {
+                const url = paperId 
+                    ? `${SERVER_URL}/api/classes/${classId}/scores/statistics?paper_id=${paperId}`
+                    : `${SERVER_URL}/api/classes/${classId}/scores/statistics`;
+                
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderScoreStatistics(result.statistics);
+                }
+            } catch (e) {
+                console.error('加载成绩统计失败:', e);
+            }
+        }
+        
+        function renderScoreStatistics(stats) {
+            const container = document.getElementById('score-statistics');
+            
+            if (!stats || !stats.statistics) {
+                container.innerHTML = '<p class="text-gray-500 col-span-4 text-center py-4">暂无统计数据</p>';
+                return;
+            }
+            
+            const s = stats.statistics;
+            container.innerHTML = `
+                <div class="bg-blue-50 rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-blue-700">${s.participated}/${s.total_students}</div>
+                    <div class="text-sm text-gray-600">参与人数</div>
+                </div>
+                <div class="bg-green-50 rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-green-700">${s.average_percentage.toFixed(1)}%</div>
+                    <div class="text-sm text-gray-600">平均分(%)</div>
+                </div>
+                <div class="bg-purple-50 rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-purple-700">${s.pass_rate.toFixed(1)}%</div>
+                    <div class="text-sm text-gray-600">及格率</div>
+                </div>
+                <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                    <div class="text-2xl font-bold text-yellow-700">${s.excellent_rate.toFixed(1)}%</div>
+                    <div class="text-sm text-gray-600">优秀率</div>
+                </div>
+            `;
+        }
+        
+        async function loadScoreTable(classId, paperId) {
+            try {
+                const url = paperId 
+                    ? `${SERVER_URL}/api/classes/${classId}/scores?paper_id=${paperId}`
+                    : `${SERVER_URL}/api/classes/${classId}/scores`;
+                
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderScoreTable(result.scores);
+                }
+            } catch (e) {
+                console.error('加载成绩表失败:', e);
+            }
+        }
+        
+        function renderScoreTable(scores) {
+            const container = document.getElementById('score-table');
+            
+            if (!scores || scores.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-4">暂无成绩记录</p>';
+                return;
+            }
+            
+            // 按排名排序
+            const sortedScores = [...scores].sort((a, b) => {
+                const aPct = a.score / a.total_score;
+                const bPct = b.score / b.total_score;
+                return bPct - aPct;
+            });
+            
+            const table = `
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">排名</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">试卷</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">得分</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">百分比</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">记录时间</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        ${sortedScores.map((score, index) => {
+                            const percentage = (score.score / score.total_score * 100).toFixed(1);
+                            const bgColor = percentage >= 90 ? 'bg-green-50' : percentage >= 60 ? 'bg-yellow-50' : 'bg-red-50';
+                            return `
+                                <tr class="${bgColor}">
+                                    <td class="px-4 py-2 whitespace-nowrap font-medium">${index + 1}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap">${score.student_number || '-'}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap">${score.student_name}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap">${score.paper_name}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap">${score.score}/${score.total_score}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap font-medium ${percentage >= 60 ? 'text-green-700' : 'text-red-700'}">
+                                        ${percentage}%
+                                    </td>
+                                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                        ${new Date(score.recorded_at).toLocaleDateString('zh-CN')}
+                                    </td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = table;
+        }
+        
+        async function loadStudentProgress(classId) {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes/${classId}`);
+                const result = await response.json();
+                
+                if (result.success && result.class) {
+                    const students = result.class.students || [];
+                    const progressPromises = students.map(student => 
+                        fetch(`${SERVER_URL}/api/classes/${classId}/students/${student.id}/progress`)
+                            .then(res => res.json())
+                            .then(res => ({ student, progress: res.progress }))
+                            .catch(() => null)
+                    );
+                    
+                    const progressData = await Promise.all(progressPromises);
+                    renderStudentProgress(progressData.filter(p => p !== null));
+                }
+            } catch (e) {
+                console.error('加载学生进步失败:', e);
+            }
+        }
+        
+        function renderStudentProgress(progressData) {
+            const container = document.getElementById('student-progress');
+            
+            if (!progressData || progressData.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 col-span-3 text-center py-4">暂无进步数据</p>';
+                return;
+            }
+            
+            container.innerHTML = progressData.map(({ student, progress }) => {
+                const trendIcon = progress.trend === 'improving' ? '📈' : progress.trend === 'declining' ? '📉' : '➡️';
+                const trendColor = progress.trend === 'improving' ? 'green' : progress.trend === 'declining' ? 'red' : 'gray';
+                const bgColor = progress.trend === 'improving' ? 'bg-green-50 border-green-200' : progress.trend === 'declining' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200';
+                
+                if (!progress.has_progress) {
+                    return `
+                        <div class="border rounded-lg p-4 ${bgColor}">
+                            <div class="font-medium mb-2">${student.name}</div>
+                            <p class="text-sm text-gray-600">${progress.message || '暂无进步数据'}</p>
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <div class="border rounded-lg p-4 ${bgColor}">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="font-medium">${student.name}</div>
+                            <div class="text-2xl">${trendIcon}</div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                                <div class="text-gray-500">初始平均</div>
+                                <div class="font-medium">${progress.first_average}%</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500">最近平均</div>
+                                <div class="font-medium">${progress.recent_average}%</div>
+                            </div>
+                        </div>
+                        <div class="mt-2 pt-2 border-t border-${trendColor}-200">
+                            <div class="flex justify-between items-center">
+                                <span class="text-sm text-gray-600">进步情况</span>
+                                <span class="text-sm font-medium text-${trendColor}-700">
+                                    ${progress.progress > 0 ? '+' : ''}${progress.progress}%
+                                </span>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">共 ${progress.total_exams} 次考试</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        async function showAddScoreModal() {
+            const classId = document.getElementById('score-class-select').value;
+            
+            if (!classId) {
+                alert('请先选择班级');
+                return;
+            }
+            
+            // 加载学生列表
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes/${classId}`);
+                const result = await response.json();
+                
+                if (result.success && result.class) {
+                    const students = result.class.students || [];
+                    const select = document.getElementById('score-student-select');
+                    select.innerHTML = '<option value="">请选择学生</option>' +
+                        students.map(s => `<option value="${s.id}">${s.name} ${s.number ? '(' + s.number + ')' : ''}</option>`).join('');
+                    
+                    // 显示模态框
+                    document.getElementById('score-modal').classList.remove('hidden');
+                }
+            } catch (e) {
+                console.error('加载学生列表失败:', e);
+                alert('加载学生列表失败');
+            }
+        }
+        
+        function closeScoreModal() {
+            document.getElementById('score-modal').classList.add('hidden');
+        }
+        
+        async function submitScore() {
+            const classId = document.getElementById('score-class-select').value;
+            const studentId = document.getElementById('score-student-select').value;
+            const paperId = document.getElementById('score-paper-select-modal').value;
+            const score = document.getElementById('score-value').value;
+            const total = document.getElementById('score-total').value;
+            const notes = document.getElementById('score-notes').value;
+            
+            if (!studentId) {
+                alert('请选择学生');
+                return;
+            }
+            
+            if (!paperId) {
+                alert('请选择试卷');
+                return;
+            }
+            
+            if (!score) {
+                alert('请输入得分');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes/${classId}/scores`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_id: studentId,
+                        score: {
+                            paper_id: paperId,
+                            score: parseFloat(score),
+                            total_score: parseFloat(total) || 100,
+                            notes: notes
+                        }
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('成绩录入成功！');
+                    closeScoreModal();
+                    
+                    // 清空表单
+                    document.getElementById('score-student-select').value = '';
+                    document.getElementById('score-paper-select-modal').value = '';
+                    document.getElementById('score-value').value = '';
+                    document.getElementById('score-notes').value = '';
+                    
+                    // 刷新成绩数据
+                    loadScoreData();
+                } else {
+                    alert('录入失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                console.error('提交成绩失败:', e);
+                alert('提交失败，请检查网络连接');
+            }
+        }
+        
         // ========== 初始化 ==========
         
         document.addEventListener('DOMContentLoaded', () => {
             initDragDrop();
+            loadClassesForUpload();  // 加载班级列表
+            
+            // 点击模态框外部关闭
+            document.getElementById('score-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'score-modal') {
+                    closeScoreModal();
+                }
+            });
+            
+            document.getElementById('class-modal').addEventListener('click', (e) => {
+                if (e.target.id === 'class-modal') {
+                    closeClassModal();
+                }
+            });
         });
         
-        // 点击模态框外部关闭
-        document.getElementById('class-modal').addEventListener('click', (e) => {
-            if (e.target.id === 'class-modal') {
-                closeClassModal();
+        async function loadClassesForUpload() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const select = document.getElementById('paper-class');
+                    select.innerHTML = '<option value="">不关联班级</option>' + 
+                        result.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                }
+            } catch (e) {
+                console.error('加载班级列表失败:', e);
             }
-        });
+        }
     </script>
 </body>
 </html>

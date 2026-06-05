@@ -1250,6 +1250,8 @@ def batch_upload_papers():
         files = request.files.getlist('files')
         paper_name = request.form.get('name', '未命名试卷')
         grade = request.form.get('grade', '10-12')
+        class_id = request.form.get('class_id', '')  # 可选：关联班级
+        auto_detect = request.form.get('auto_detect', 'true').lower() == 'true'
         
         if not files:
             return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
@@ -1264,13 +1266,14 @@ def batch_upload_papers():
         if not image_files:
             return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
         
-        # 异步或同步处理
-        # 简单起见，同步处理，返回状态
+        # 调用增强版的批量分析
         result = test_library.batch_analyze_papers(
             image_files=image_files,
             grade=grade,
             paper_name=paper_name,
-            concurrency=int(request.form.get('concurrency', 4))
+            concurrency=int(request.form.get('concurrency', 4)),
+            class_id=class_id if class_id else None,
+            auto_detect_names=auto_detect
         )
         
         return jsonify(result)
@@ -1582,6 +1585,76 @@ def delete_class(class_id):
             return jsonify({'success': False, 'error': '班级未找到'}), 404
     except Exception as e:
         logger.error(f'删除班级失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- 学生成绩管理 API ---
+
+@app.route('/api/classes/<class_id>/scores', methods=['POST'])
+@admin_required
+def add_student_score(class_id):
+    """添加学生成绩"""
+    try:
+        data = request.get_json() or {}
+        student_id = data.get('student_id')
+        score_data = data.get('score', {})
+        
+        if not student_id:
+            return jsonify({'success': False, 'error': '学生ID不能为空'}), 400
+        
+        success = test_library.add_student_score(class_id, student_id, score_data)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '添加失败'}), 500
+    except Exception as e:
+        logger.error(f'添加学生成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores', methods=['GET'])
+@track_request_stats
+def get_class_scores(class_id):
+    """获取班级成绩"""
+    try:
+        paper_id = request.args.get('paper_id')
+        scores = test_library.get_class_scores(class_id, paper_id)
+        return jsonify({'success': True, 'scores': scores})
+    except Exception as e:
+        logger.error(f'获取班级成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores/statistics', methods=['GET'])
+@track_request_stats
+def get_class_score_statistics(class_id):
+    """获取班级成绩统计"""
+    try:
+        paper_id = request.args.get('paper_id')
+        statistics = test_library.calculate_class_statistics(class_id, paper_id)
+        return jsonify({'success': True, 'statistics': statistics})
+    except Exception as e:
+        logger.error(f'获取成绩统计失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores/ranking', methods=['GET'])
+@track_request_stats
+def get_class_score_ranking(class_id):
+    """获取班级成绩排名"""
+    try:
+        paper_id = request.args.get('paper_id')
+        ranking = test_library.get_student_ranking(class_id, paper_id)
+        return jsonify({'success': True, 'ranking': ranking})
+    except Exception as e:
+        logger.error(f'获取成绩排名失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/students/<student_id>/progress', methods=['GET'])
+@track_request_stats
+def get_student_progress(class_id, student_id):
+    """获取学生进步情况"""
+    try:
+        progress = test_library.get_student_progress(class_id, student_id)
+        return jsonify({'success': True, 'progress': progress})
+    except Exception as e:
+        logger.error(f'获取学生进步情况失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # --- 初始化 ---

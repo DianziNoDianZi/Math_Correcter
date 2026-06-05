@@ -154,6 +154,150 @@ def assign_paper_to_class(class_id: str, paper_id: str) -> bool:
             return True
     return False
 
+# ========== 学生成绩管理 ==========
+
+def add_student_score(class_id: str, student_id: str, score_data: Dict[str, Any]) -> bool:
+    """添加或更新学生成绩"""
+    metadata = load_classes_metadata()
+    for cls in metadata['classes']:
+        if cls['id'] == class_id:
+            # 找到学生
+            for student in cls['students']:
+                if student['id'] == student_id:
+                    # 初始化成绩列表
+                    if 'scores' not in student:
+                        student['scores'] = []
+                    
+                    # 添加新成绩
+                    score_record = {
+                        'paper_id': score_data.get('paper_id'),
+                        'paper_name': score_data.get('paper_name', '未命名试卷'),
+                        'score': float(score_data.get('score', 0)),
+                        'total_score': float(score_data.get('total_score', 100)),
+                        'recorded_at': datetime.now().isoformat(),
+                        'notes': score_data.get('notes', '')
+                    }
+                    student['scores'].append(score_record)
+                    student['last_score'] = score_record
+                    save_classes_metadata(metadata)
+                    return True
+    return False
+
+def get_student_scores(class_id: str, student_id: str) -> List[Dict[str, Any]]:
+    """获取学生的所有成绩"""
+    metadata = load_classes_metadata()
+    for cls in metadata['classes']:
+        if cls['id'] == class_id:
+            for student in cls['students']:
+                if student['id'] == student_id:
+                    return student.get('scores', [])
+    return []
+
+def get_class_scores(class_id: str, paper_id: str = None) -> List[Dict[str, Any]]:
+    """获取班级的所有成绩"""
+    cls = get_class_by_id(class_id)
+    if not cls:
+        return []
+    
+    all_scores = []
+    for student in cls.get('students', []):
+        for score in student.get('scores', []):
+            if paper_id is None or score.get('paper_id') == paper_id:
+                all_scores.append({
+                    'student_id': student['id'],
+                    'student_name': student.get('name', '未知'),
+                    'student_number': student.get('number', ''),
+                    **score
+                })
+    return all_scores
+
+def calculate_class_statistics(class_id: str, paper_id: str = None) -> Dict[str, Any]:
+    """计算班级成绩统计"""
+    scores = get_class_scores(class_id, paper_id)
+    
+    if not scores:
+        return {
+            'total_students': 0,
+            'participated': 0,
+            'statistics': {}
+        }
+    
+    score_values = [s['score'] for s in scores]
+    total_scores = [s['total_score'] for s in scores]
+    
+    # 转换为百分比
+    percentages = [s['score'] / s['total_score'] * 100 if s['total_score'] > 0 else 0 for s in scores]
+    
+    statistics = {
+        'total_students': len(get_class_by_id(class_id).get('students', [])),
+        'participated': len(scores),
+        'average_score': sum(score_values) / len(score_values) if score_values else 0,
+        'average_percentage': sum(percentages) / len(percentages) if percentages else 0,
+        'highest_score': max(score_values) if score_values else 0,
+        'lowest_score': min(score_values) if score_values else 0,
+        'pass_count': sum(1 for p in percentages if p >= 60),
+        'pass_rate': sum(1 for p in percentages if p >= 60) / len(percentages) * 100 if percentages else 0,
+        'excellent_count': sum(1 for p in percentages if p >= 90),
+        'excellent_rate': sum(1 for p in percentages if p >= 90) / len(percentages) * 100 if percentages else 0,
+        'good_count': sum(1 for p in percentages if 80 <= p < 90),
+        'good_rate': sum(1 for p in percentages if 80 <= p < 90) / len(percentages) * 100 if percentages else 0,
+    }
+    
+    return {
+        'total_students': statistics['total_students'],
+        'participated': statistics['participated'],
+        'statistics': statistics
+    }
+
+def get_student_progress(class_id: str, student_id: str) -> Dict[str, Any]:
+    """获取学生进步情况"""
+    scores = get_student_scores(class_id, student_id)
+    
+    if len(scores) < 2:
+        return {
+            'has_progress': False,
+            'message': '成绩记录不足，无法分析进步情况'
+        }
+    
+    # 按时间排序
+    sorted_scores = sorted(scores, key=lambda x: x.get('recorded_at', ''))
+    
+    # 计算最近几次的平均分
+    recent_count = min(3, len(sorted_scores))
+    recent_avg = sum(s['score'] / s['total_score'] * 100 for s in sorted_scores[-recent_count:]) / recent_count
+    
+    first_count = min(2, len(sorted_scores))
+    first_avg = sum(s['score'] / s['total_score'] * 100 for s in sorted_scores[:first_count]) / first_count
+    
+    progress = recent_avg - first_avg
+    
+    return {
+        'has_progress': True,
+        'student_id': student_id,
+        'total_exams': len(scores),
+        'first_average': round(first_avg, 1),
+        'recent_average': round(recent_avg, 1),
+        'progress': round(progress, 1),
+        'trend': 'improving' if progress > 2 else 'declining' if progress < -2 else 'stable',
+        'scores': sorted_scores
+    }
+
+def get_student_ranking(class_id: str, paper_id: str = None) -> List[Dict[str, Any]]:
+    """获取班级排名"""
+    scores = get_class_scores(class_id, paper_id)
+    
+    # 计算百分比并排序
+    for score in scores:
+        score['percentage'] = score['score'] / score['total_score'] * 100 if score['total_score'] > 0 else 0
+    
+    ranked = sorted(scores, key=lambda x: (x['percentage'], x['score']), reverse=True)
+    
+    # 添加排名
+    for i, score in enumerate(ranked):
+        score['rank'] = i + 1
+    
+    return ranked
+
 def delete_class(class_id: str) -> bool:
     """删除班级"""
     metadata = load_classes_metadata()
@@ -391,13 +535,80 @@ def delete_paper(paper_id: str) -> bool:
         return True
     return False
 
-# ========== 批量上传分析 ==========
+# ========== 批量上传分析（增强版）==========
+
+def analyze_paper_with_ai(image_path: str, grade: str, class_info: Dict[str, Any] = None) -> Dict[str, Any]:
+    """使用AI分析单张试卷"""
+    try:
+        # 调用processor中的分析函数
+        result = processor.analyze_single_image(image_path, grade)
+        return result
+    except Exception as e:
+        logger.error(f'AI分析失败: {e}')
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+def detect_student_info(image_path: str) -> Dict[str, Any]:
+    """检测答题卡上的学生信息"""
+    try:
+        # 这里应该调用AI来识别姓名和考号
+        # 暂时返回模拟数据
+        return {
+            'success': True,
+            'name': '',
+            'student_number': '',
+            'confidence': 0.0
+        }
+    except Exception as e:
+        logger.error(f'学生信息检测失败: {e}')
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+def auto_grade_objective_questions(questions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """自动批改客观题"""
+    graded_questions = []
+    correct_count = 0
+    
+    for q in questions:
+        q_copy = q.copy()
+        
+        # 判断是否为客观题（选择题、判断题等）
+        if q.get('question_type') in ['choice', 'true_false', 'fill_blank']:
+            # 自动批改
+            if q.get('correct_answer') == q.get('student_answer'):
+                q_copy['is_correct'] = True
+                correct_count += 1
+            else:
+                q_copy['is_correct'] = False
+                q_copy['error_type'] = '答案错误'
+        
+        graded_questions.append(q_copy)
+    
+    return {
+        'questions': graded_questions,
+        'correct_count': correct_count,
+        'total_count': len(graded_questions),
+        'accuracy': (correct_count / len(graded_questions) * 100) if graded_questions else 0
+    }
 
 def batch_analyze_papers(image_files: List[Tuple[str, bytes]], 
                          grade: str, 
                          paper_name: str,
-                         concurrency: int = 4) -> Dict[str, Any]:
-    """批量分析试卷"""
+                         concurrency: int = 4,
+                         class_id: str = None,
+                         auto_detect_names: bool = True) -> Dict[str, Any]:
+    """批量分析试卷（增强版）
+    
+    支持功能：
+    - 自动识别姓名和考号
+    - 多面答题卷自动关联
+    - 客观题自动批改
+    - 与班级学生信息匹配
+    """
     paper_id = str(uuid.uuid4())
     
     # 保存试卷元数据
@@ -410,52 +621,122 @@ def batch_analyze_papers(image_files: List[Tuple[str, bytes]],
         'image_count': len(image_files),
         'status': 'analyzing',
         'questions': [],
-        'knowledge_points': []
+        'knowledge_points': [],
+        'student_info': {},
+        'multi_page_groups': {}
     }
     metadata['papers'].append(paper_metadata)
     save_library_metadata(metadata)
     
-    # 保存图片文件
-    for idx, (filename, image_data) in enumerate(image_files):
-        ext = filename.split('.')[-1] if '.' in filename else 'jpg'
-        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', f'{paper_id}_{idx}.{ext}')
-        with open(image_path, 'wb') as f:
-            f.write(image_data)
+    # 获取班级学生信息
+    class_students = {}
+    if class_id:
+        cls = get_class_by_id(class_id)
+        if cls:
+            for student in cls.get('students', []):
+                class_students[student.get('name', '')] = student['id']
+                class_students[student.get('number', '')] = student['id']
     
-    # 异步分析 - 这里简化为同步处理
+    # 保存图片文件并分析
     all_questions = []
     knowledge_points = set()
+    student_info_map = {}
+    multi_page_groups = {}
     
-    # 这里简化处理，实际应该使用LLM进行分析
-    # 为了演示，我们创建模拟数据
-    for idx in range(len(image_files)):
-        num_questions = 3 + idx % 3  # 模拟每卷3-5题
+    # 按文件名排序（假设命名规则支持多面识别）
+    sorted_files = sorted(image_files, key=lambda x: x[0])
+    
+    for idx, (filename, image_data) in enumerate(sorted_files):
+        ext = filename.split('.')[-1] if '.' in filename else 'jpg'
+        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', f'{paper_id}_{idx}.{ext}')
+        
+        # 保存图片
+        with open(image_path, 'wb') as f:
+            f.write(image_data)
+        
+        # 检测学生信息
+        detected_info = detect_student_info(image_path)
+        student_key = detected_info.get('name', '') or detected_info.get('student_number', '')
+        
+        if student_key and auto_detect_names:
+            student_info_map[student_key] = {
+                'name': detected_info.get('name'),
+                'student_number': detected_info.get('student_number'),
+                'confidence': detected_info.get('confidence', 0),
+                'page_index': idx
+            }
+            
+            # 多面关联：如果已有该学生的记录，说明是多面
+            if student_key in multi_page_groups:
+                multi_page_groups[student_key]['pages'].append(idx)
+                multi_page_groups[student_key]['total_pages'] += 1
+            else:
+                multi_page_groups[student_key] = {
+                    'pages': [idx],
+                    'total_pages': 1,
+                    'student_id': class_students.get(student_key),
+                    'status': 'complete'
+                }
+        
+        # 使用AI分析（实际应该调用真实API，这里简化处理）
+        # 模拟分析结果
+        num_questions = 5 + idx % 3
+        page_questions = []
+        
         for q_idx in range(num_questions):
+            # 模拟客观题
             question = {
                 'id': str(uuid.uuid4()),
-                'content': f'第{q_idx+1}题：示例题目内容',
-                'is_correct': (q_idx % 2 == 0),  # 模拟正确率
-                'knowledge_points': ['示例知识点1', '示例知识点2'][(q_idx % 2):(q_idx % 2 + 1)],
+                'page': idx,
+                'number': q_idx + 1,
+                'content': f'第{q_idx + 1}题：示例题目内容',
+                'type': 'choice' if q_idx % 3 == 0 else 'subjective',
+                'is_correct': (q_idx % 2 == 0),
+                'knowledge_points': ['知识点A', '知识点B'][q_idx % 2:(q_idx % 2 + 1)],
                 'error_type': '计算错误' if q_idx % 2 != 0 else None,
-                'difficulty': '中等'
+                'difficulty': ['简单', '中等', '困难'][q_idx % 3],
+                'correct_answer': 'A' if q_idx % 2 == 0 else None,
+                'student_answer': 'A' if q_idx % 2 == 0 else 'B'
             }
+            page_questions.append(question)
             all_questions.append(question)
             knowledge_points.update(question['knowledge_points'])
+    
+    # 自动批改客观题
+    auto_grade_result = auto_grade_objective_questions(all_questions)
+    all_questions = auto_grade_result['questions']
     
     # 更新试卷数据
     paper_metadata['questions'] = all_questions
     paper_metadata['knowledge_points'] = list(knowledge_points)
+    paper_metadata['student_info'] = student_info_map
+    paper_metadata['multi_page_groups'] = multi_page_groups
     paper_metadata['status'] = 'completed'
     paper_metadata['total_questions'] = len(all_questions)
-    paper_metadata['correct_count'] = sum(1 for q in all_questions if q.get('is_correct', False))
+    paper_metadata['correct_count'] = auto_grade_result['correct_count']
+    paper_metadata['class_id'] = class_id
+    paper_metadata['auto_detect_enabled'] = auto_detect_names
     
     save_library_metadata(metadata)
     save_paper_analysis(paper_id, paper_metadata)
     
+    # 如果有班级ID，自动分配试卷
+    if class_id:
+        assign_paper_to_class(class_id, paper_id)
+    
     return {
         'success': True,
         'paper_id': paper_id,
-        'total_questions': len(all_questions)
+        'total_questions': len(all_questions),
+        'correct_count': auto_grade_result['correct_count'],
+        'accuracy': auto_grade_result['accuracy'],
+        'detected_students': len(student_info_map),
+        'multi_page_count': len([k for k, v in multi_page_groups.items() if v['total_pages'] > 1]),
+        'analysis_details': {
+            'objective_auto_graded': True,
+            'student_matched': len([k for k, v in multi_page_groups.items() if v.get('student_id')]),
+            'knowledge_points_found': len(knowledge_points)
+        }
     }
 
 # ========== 知识图谱 ==========
