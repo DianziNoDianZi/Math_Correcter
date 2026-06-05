@@ -1,144 +1,198 @@
-# -*- coding: utf-8 -*-
-"""试卷库管理和分析模块：面向教师/学校的教学管理平台"""
+"""
+试卷库管理模块 - 增强版
+支持考试管理、答题卡扫描、成绩审核等完整教学流程
+"""
 import os
-import json
-import base64
-import logging
 import uuid
-from datetime import datetime
+import json
+import logging
 from typing import List, Dict, Any, Optional, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from collections import Counter
+from datetime import datetime
+from collections import defaultdict
 
-import processor
-from config import TEST_LIBRARY_DIR
-
+# 配置日志
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 目录配置
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+TEST_LIBRARY_DIR = os.path.join(DATA_DIR, 'test_library')
+CLASSES_DIR = os.path.join(DATA_DIR, 'classes')
+EXAMS_DIR = os.path.join(DATA_DIR, 'exams')
+REPORTS_DIR = os.path.join(DATA_DIR, 'reports')
+
 # 确保目录存在
-os.makedirs(TEST_LIBRARY_DIR, exist_ok=True)
-os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'images'), exist_ok=True)
-os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'analyses'), exist_ok=True)
-os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'classes'), exist_ok=True)
-os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'reports'), exist_ok=True)
+for d in [DATA_DIR, TEST_LIBRARY_DIR, CLASSES_DIR, EXAMS_DIR, REPORTS_DIR]:
+    os.makedirs(d, exist_ok=True)
+    os.makedirs(os.path.join(d, 'images'), exist_ok=True)
+    os.makedirs(os.path.join(d, 'scans'), exist_ok=True)
 
-# 数据文件路径
-def get_library_metadata_path() -> str:
-    """获取试卷库元数据文件路径"""
-    return os.path.join(TEST_LIBRARY_DIR, 'library_metadata.json')
+# ========== 配置文件读写 ==========
 
-def get_classes_metadata_path() -> str:
-    """获取班级元数据文件路径"""
-    return os.path.join(TEST_LIBRARY_DIR, 'classes_metadata.json')
+def load_json(filepath: str) -> Dict:
+    """加载JSON文件"""
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        logger.error(f'加载JSON失败: {e}')
+        return {}
 
-# ========== 数据加载/保存 ==========
+def save_json(filepath: str, data: Dict) -> bool:
+    """保存JSON文件"""
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f'保存JSON失败: {e}')
+        return False
 
-def load_library_metadata() -> Dict[str, Any]:
+# ========== 试卷库元数据 ==========
+
+def load_library_metadata() -> Dict:
     """加载试卷库元数据"""
-    path = get_library_metadata_path()
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f'Failed to load library metadata: {e}')
-    return {
-        'papers': [],
-        'total_questions': 0,
-        'last_updated': None
-    }
+    return load_json(os.path.join(TEST_LIBRARY_DIR, 'metadata.json'))
 
-def save_library_metadata(metadata: Dict[str, Any]) -> None:
+def save_library_metadata(metadata: Dict) -> bool:
     """保存试卷库元数据"""
-    metadata['last_updated'] = datetime.now().isoformat()
-    path = get_library_metadata_path()
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f'Failed to save library metadata: {e}')
+    return save_json(os.path.join(TEST_LIBRARY_DIR, 'metadata.json'), metadata)
 
-def load_classes_metadata() -> Dict[str, Any]:
+def init_library_metadata() -> Dict:
+    """初始化试卷库元数据"""
+    metadata = load_library_metadata()
+    if not metadata:
+        metadata = {
+            'papers': [],
+            'total_uploaded': 0,
+            'last_updated': datetime.now().isoformat()
+        }
+        save_library_metadata(metadata)
+    return metadata
+
+# ========== 班级元数据 ==========
+
+def load_classes_metadata() -> Dict:
     """加载班级元数据"""
-    path = get_classes_metadata_path()
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f'Failed to load classes metadata: {e}')
-    return {
-        'classes': []
-    }
+    return load_json(os.path.join(CLASSES_DIR, 'metadata.json'))
 
-def save_classes_metadata(metadata: Dict[str, Any]) -> None:
+def save_classes_metadata(metadata: Dict) -> bool:
     """保存班级元数据"""
-    path = get_classes_metadata_path()
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f'Failed to save classes metadata: {e}')
+    return save_json(os.path.join(CLASSES_DIR, 'metadata.json'), metadata)
 
-def save_paper_analysis(paper_id: str, analysis_data: Dict[str, Any]) -> None:
-    """保存单张试卷的分析结果"""
-    path = os.path.join(TEST_LIBRARY_DIR, 'analyses', f'{paper_id}.json')
-    try:
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(analysis_data, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.error(f'Failed to save paper analysis: {e}')
+def init_classes_metadata() -> Dict:
+    """初始化班级元数据"""
+    metadata = load_classes_metadata()
+    if not metadata:
+        metadata = {
+            'classes': [],
+            'total_students': 0
+        }
+        save_classes_metadata(metadata)
+    return metadata
+
+# ========== 考试元数据 ==========
+
+def load_exams_metadata() -> Dict:
+    """加载考试元数据"""
+    return load_json(os.path.join(EXAMS_DIR, 'metadata.json'))
+
+def save_exams_metadata(metadata: Dict) -> bool:
+    """保存考试元数据"""
+    return save_json(os.path.join(EXAMS_DIR, 'metadata.json'), metadata)
+
+def init_exams_metadata() -> Dict:
+    """初始化考试元数据"""
+    metadata = load_exams_metadata()
+    if not metadata:
+        metadata = {'exams': []}
+        save_exams_metadata(metadata)
+    return metadata
+
+# ========== 试卷库管理 ==========
+
+def get_all_papers() -> List[Dict[str, Any]]:
+    """获取所有试卷"""
+    metadata = load_library_metadata()
+    return metadata.get('papers', [])
+
+def get_paper_by_id(paper_id: str) -> Optional[Dict[str, Any]]:
+    """根据ID获取试卷"""
+    metadata = load_library_metadata()
+    for paper in metadata.get('papers', []):
+        if paper['id'] == paper_id:
+            return paper
+    return None
 
 def load_paper_analysis(paper_id: str) -> Optional[Dict[str, Any]]:
-    """加载单张试卷的分析结果"""
-    path = os.path.join(TEST_LIBRARY_DIR, 'analyses', f'{paper_id}.json')
-    if os.path.exists(path):
-        try:
-            with open(path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception as e:
-            logger.error(f'Failed to load paper analysis: {e}')
-    return None
+    """加载试卷分析结果"""
+    analysis_path = os.path.join(TEST_LIBRARY_DIR, 'analyses', f'{paper_id}.json')
+    return load_json(analysis_path)
+
+def save_paper_analysis(paper_id: str, analysis: Dict) -> bool:
+    """保存试卷分析结果"""
+    analysis_dir = os.path.join(TEST_LIBRARY_DIR, 'analyses')
+    os.makedirs(analysis_dir, exist_ok=True)
+    analysis_path = os.path.join(analysis_dir, f'{paper_id}.json')
+    return save_json(analysis_path, analysis)
 
 # ========== 班级管理 ==========
 
-def add_class(class_name: str, grade: str, teacher_name: str = "") -> str:
-    """添加新班级"""
-    metadata = load_classes_metadata()
-    class_id = str(uuid.uuid4())
-    new_class = {
-        'id': class_id,
-        'name': class_name,
-        'grade': grade,
-        'teacher_name': teacher_name,
-        'create_time': datetime.now().isoformat(),
-        'students': [],
-        'assigned_papers': []
-    }
-    metadata['classes'].append(new_class)
-    save_classes_metadata(metadata)
-    return class_id
-
 def get_all_classes() -> List[Dict[str, Any]]:
     """获取所有班级"""
-    return load_classes_metadata().get('classes', [])
+    metadata = load_classes_metadata()
+    return metadata.get('classes', [])
 
 def get_class_by_id(class_id: str) -> Optional[Dict[str, Any]]:
-    """根据ID获取班级信息"""
-    classes = get_all_classes()
-    for cls in classes:
+    """根据ID获取班级"""
+    metadata = load_classes_metadata()
+    for cls in metadata.get('classes', []):
         if cls['id'] == class_id:
             return cls
     return None
 
-def add_student_to_class(class_id: str, student_info: Dict[str, Any]) -> bool:
+def add_class(class_data: Dict[str, Any]) -> Dict[str, Any]:
+    """添加班级"""
+    class_id = str(uuid.uuid4())
+    
+    metadata = load_classes_metadata()
+    new_class = {
+        'id': class_id,
+        'name': class_data.get('name', '未命名班级'),
+        'grade': class_data.get('grade', '10-12'),
+        'teacher_name': class_data.get('teacher_name', ''),
+        'created_at': datetime.now().isoformat(),
+        'students': [],
+        'assigned_papers': []
+    }
+    
+    metadata['classes'].append(new_class)
+    save_classes_metadata(metadata)
+    
+    return {
+        'success': True,
+        'class_id': class_id,
+        'class': new_class
+    }
+
+def add_student_to_class(class_id: str, student_data: Dict[str, Any]) -> bool:
     """添加学生到班级"""
     metadata = load_classes_metadata()
     for cls in metadata['classes']:
         if cls['id'] == class_id:
-            student_info['id'] = str(uuid.uuid4())
-            student_info['join_time'] = datetime.now().isoformat()
-            cls['students'].append(student_info)
+            student_id = str(uuid.uuid4())
+            student = {
+                'id': student_id,
+                'name': student_data.get('name', ''),
+                'student_number': student_data.get('student_number', ''),
+                'added_at': datetime.now().isoformat(),
+                'scores': []
+            }
+            cls['students'].append(student)
+            metadata['total_students'] = metadata.get('total_students', 0) + 1
             save_classes_metadata(metadata)
             return True
     return False
@@ -154,6 +208,17 @@ def assign_paper_to_class(class_id: str, paper_id: str) -> bool:
             return True
     return False
 
+def delete_class(class_id: str) -> bool:
+    """删除班级"""
+    metadata = load_classes_metadata()
+    initial_length = len(metadata['classes'])
+    metadata['classes'] = [c for c in metadata['classes'] if c['id'] != class_id]
+    
+    if len(metadata['classes']) < initial_length:
+        save_classes_metadata(metadata)
+        return True
+    return False
+
 # ========== 学生成绩管理 ==========
 
 def add_student_score(class_id: str, student_id: str, score_data: Dict[str, Any]) -> bool:
@@ -161,14 +226,11 @@ def add_student_score(class_id: str, student_id: str, score_data: Dict[str, Any]
     metadata = load_classes_metadata()
     for cls in metadata['classes']:
         if cls['id'] == class_id:
-            # 找到学生
             for student in cls['students']:
                 if student['id'] == student_id:
-                    # 初始化成绩列表
                     if 'scores' not in student:
                         student['scores'] = []
                     
-                    # 添加新成绩
                     score_record = {
                         'paper_id': score_data.get('paper_id'),
                         'paper_name': score_data.get('paper_name', '未命名试卷'),
@@ -206,7 +268,7 @@ def get_class_scores(class_id: str, paper_id: str = None) -> List[Dict[str, Any]
                 all_scores.append({
                     'student_id': student['id'],
                     'student_name': student.get('name', '未知'),
-                    'student_number': student.get('number', ''),
+                    'student_number': student.get('student_number', ''),
                     **score
                 })
     return all_scores
@@ -216,16 +278,9 @@ def calculate_class_statistics(class_id: str, paper_id: str = None) -> Dict[str,
     scores = get_class_scores(class_id, paper_id)
     
     if not scores:
-        return {
-            'total_students': 0,
-            'participated': 0,
-            'statistics': {}
-        }
+        return {'total_students': 0, 'participated': 0, 'statistics': {}}
     
     score_values = [s['score'] for s in scores]
-    total_scores = [s['total_score'] for s in scores]
-    
-    # 转换为百分比
     percentages = [s['score'] / s['total_score'] * 100 if s['total_score'] > 0 else 0 for s in scores]
     
     statistics = {
@@ -239,8 +294,6 @@ def calculate_class_statistics(class_id: str, paper_id: str = None) -> Dict[str,
         'pass_rate': sum(1 for p in percentages if p >= 60) / len(percentages) * 100 if percentages else 0,
         'excellent_count': sum(1 for p in percentages if p >= 90),
         'excellent_rate': sum(1 for p in percentages if p >= 90) / len(percentages) * 100 if percentages else 0,
-        'good_count': sum(1 for p in percentages if 80 <= p < 90),
-        'good_rate': sum(1 for p in percentages if 80 <= p < 90) / len(percentages) * 100 if percentages else 0,
     }
     
     return {
@@ -254,15 +307,10 @@ def get_student_progress(class_id: str, student_id: str) -> Dict[str, Any]:
     scores = get_student_scores(class_id, student_id)
     
     if len(scores) < 2:
-        return {
-            'has_progress': False,
-            'message': '成绩记录不足，无法分析进步情况'
-        }
+        return {'has_progress': False, 'message': '成绩记录不足，无法分析进步情况'}
     
-    # 按时间排序
     sorted_scores = sorted(scores, key=lambda x: x.get('recorded_at', ''))
     
-    # 计算最近几次的平均分
     recent_count = min(3, len(sorted_scores))
     recent_avg = sum(s['score'] / s['total_score'] * 100 for s in sorted_scores[-recent_count:]) / recent_count
     
@@ -282,641 +330,344 @@ def get_student_progress(class_id: str, student_id: str) -> Dict[str, Any]:
         'scores': sorted_scores
     }
 
-def get_student_ranking(class_id: str, paper_id: str = None) -> List[Dict[str, Any]]:
-    """获取班级排名"""
-    scores = get_class_scores(class_id, paper_id)
-    
-    # 计算百分比并排序
-    for score in scores:
-        score['percentage'] = score['score'] / score['total_score'] * 100 if score['total_score'] > 0 else 0
-    
-    ranked = sorted(scores, key=lambda x: (x['percentage'], x['score']), reverse=True)
-    
-    # 添加排名
-    for i, score in enumerate(ranked):
-        score['rank'] = i + 1
-    
-    return ranked
+# ========== 考试管理 ==========
 
-def delete_class(class_id: str) -> bool:
-    """删除班级"""
-    metadata = load_classes_metadata()
-    original_count = len(metadata['classes'])
-    metadata['classes'] = [c for c in metadata['classes'] if c['id'] != class_id]
-    if len(metadata['classes']) < original_count:
-        save_classes_metadata(metadata)
-        return True
+def create_exam(exam_data: Dict[str, Any]) -> Dict[str, Any]:
+    """创建考试"""
+    exam_id = str(uuid.uuid4())
+    
+    exam = {
+        'id': exam_id,
+        'name': exam_data.get('name', '未命名考试'),
+        'class_id': exam_data.get('class_id'),
+        'grade': exam_data.get('grade'),
+        'total_score': float(exam_data.get('total_score', 100)),
+        'created_at': datetime.now().isoformat(),
+        'status': 'draft',  # draft:草稿, ready:就绪, scanning:扫描中, reviewing:待审核, completed:已完成
+        'questions': [],  # 题目信息
+        'scores': [],  # 扫描后的成绩
+        'statistics': {}
+    }
+    
+    metadata = load_exams_metadata()
+    metadata['exams'].append(exam)
+    save_exams_metadata(metadata)
+    
+    return {'success': True, 'exam_id': exam_id, 'exam': exam}
+
+def add_question_to_exam(exam_id: str, question_data: Dict[str, Any]) -> bool:
+    """添加题目到考试"""
+    metadata = load_exams_metadata()
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            question = {
+                'number': len(exam['questions']) + 1,
+                'type': question_data.get('type', 'choice'),  # choice, true_false, fill_blank, subjective
+                'content': question_data.get('content', ''),
+                'correct_answer': question_data.get('correct_answer'),
+                'score': float(question_data.get('score', 5)),
+                'knowledge_points': question_data.get('knowledge_points', []),
+                'difficulty': question_data.get('difficulty', 'medium')
+            }
+            exam['questions'].append(question)
+            save_exams_metadata(metadata)
+            return True
     return False
 
-# ========== 班级整体学情分析 ==========
+def set_exam_ready(exam_id: str) -> bool:
+    """设置考试就绪状态"""
+    metadata = load_exams_metadata()
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            if len(exam['questions']) == 0:
+                return False
+            exam['status'] = 'ready'
+            save_exams_metadata(metadata)
+            return True
+    return False
 
-def analyze_class_performance(class_id: str) -> Dict[str, Any]:
-    """分析班级整体学情"""
-    cls = get_class_by_id(class_id)
-    if not cls:
-        return {
-            'success': False,
-            'error': '班级不存在'
-        }
-    
-    # 获取班级关联的试卷
-    assigned_papers = cls.get('assigned_papers', [])
-    
-    # 收集所有题目数据
-    all_questions = []
-    for paper_id in assigned_papers:
-        paper_analysis = load_paper_analysis(paper_id)
-        if paper_analysis and 'questions' in paper_analysis:
-            all_questions.extend(paper_analysis['questions'])
-    
-    if not all_questions:
-        return {
-            'success': True,
-            'class_name': cls.get('name', '未知班级'),
-            'total_papers': len(assigned_papers),
-            'total_questions': 0,
-            'overall_accuracy': 0,
-            'knowledge_mastery': [],
-            'error_types': [],
-            'grade_distribution': [],
-            'teaching_suggestions': []
-        }
-    
-    # 统计数据
-    total_questions = len(all_questions)
-    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
-    overall_accuracy = (correct_count / total_questions * 100) if total_questions > 0 else 0
-    
-    # 知识点掌握情况
-    knowledge_mastery = {}
-    for q in all_questions:
-        for kp in q.get('knowledge_points', []):
-            if kp not in knowledge_mastery:
-                knowledge_mastery[kp] = {'total': 0, 'correct': 0}
-            knowledge_mastery[kp]['total'] += 1
-            if q.get('is_correct', False):
-                knowledge_mastery[kp]['correct'] += 1
-    
-    knowledge_list = []
-    for kp, data in knowledge_mastery.items():
-        rate = (data['correct'] / data['total'] * 100) if data['total'] > 0 else 0
-        knowledge_list.append({
-            'knowledge_point': kp,
-            'total': data['total'],
-            'correct': data['correct'],
-            'mastery_rate': round(rate, 1)
-        })
-    knowledge_list.sort(key=lambda x: x['mastery_rate'])
-    
-    # 错误类型统计
-    error_types = {}
-    for q in all_questions:
-        if not q.get('is_correct', True):
-            et = q.get('error_type', '未知错误')
-            error_types[et] = error_types.get(et, 0) + 1
-    
-    total_errors = sum(error_types.values())
-    error_type_stats = []
-    for et, count in error_types.items():
-        pct = (count / total_errors * 100) if total_errors > 0 else 0
-        error_type_stats.append({
-            'error_type': et,
-            'count': count,
-            'percentage': round(pct, 1)
-        })
-    error_type_stats.sort(key=lambda x: x['count'], reverse=True)
-    
-    # 成绩分布（模拟）
-    grade_distribution = [
-        {'grade': '优秀(90-100)', 'count': int(correct_count * 0.15)},
-        {'grade': '良好(80-89)', 'count': int(correct_count * 0.25)},
-        {'grade': '中等(70-79)', 'count': int(correct_count * 0.3)},
-        {'grade': '及格(60-69)', 'count': int(correct_count * 0.2)},
-        {'grade': '不及格(<60)', 'count': int(total_questions - correct_count)}
-    ]
-    
-    # 教学建议
-    teaching_suggestions = generate_teaching_suggestions(
-        knowledge_list, error_type_stats, overall_accuracy
-    )
-    
-    return {
-        'success': True,
-        'class_name': cls.get('name', '未知班级'),
-        'total_papers': len(assigned_papers),
-        'total_questions': total_questions,
-        'correct_count': correct_count,
-        'overall_accuracy': round(overall_accuracy, 1),
-        'knowledge_mastery': knowledge_list,
-        'error_types': error_type_stats,
-        'grade_distribution': grade_distribution,
-        'teaching_suggestions': teaching_suggestions
-    }
-
-def generate_teaching_suggestions(knowledge_mastery: List[Dict[str, Any]],
-                                  error_types: List[Dict[str, Any]],
-                                  overall_accuracy: float) -> List[Dict[str, Any]]:
-    """生成教学建议"""
-    suggestions = []
-    
-    # 薄弱知识点建议
-    weak_points = [kp for kp in knowledge_mastery if kp['mastery_rate'] < 60][:3]
-    if weak_points:
-        suggestions.append({
-            'category': '薄弱知识点',
-            'priority': 'high',
-            'suggestion': f'以下知识点需要重点加强：{"、".join([kp["knowledge_point"] for kp in weak_points])}'
-        })
-    
-    # 常见错误建议
-    if error_types:
-        top_errors = error_types[:2]
-        for error in top_errors:
-            suggestions.append({
-                'category': '常见错误',
-                'priority': 'high' if error['percentage'] > 30 else 'medium',
-                'suggestion': f'错误类型 "{error["error_type"]}" 占比 {error["percentage"]}%，建议针对性讲解'
-            })
-    
-    # 整体学情建议
-    if overall_accuracy < 60:
-        suggestions.append({
-            'category': '整体学情',
-            'priority': 'high',
-            'suggestion': '班级整体掌握情况较差，建议放慢教学进度，加强基础练习'
-        })
-    elif overall_accuracy < 80:
-        suggestions.append({
-            'category': '整体学情',
-            'priority': 'medium',
-            'suggestion': '班级整体情况尚可，但需要关注学困生，进行个别辅导'
-        })
-    else:
-        suggestions.append({
-            'category': '整体学情',
-            'priority': 'low',
-            'suggestion': '班级整体掌握良好，可以适当增加拓展内容，提升学生能力'
-        })
-    
-    return suggestions
-
-# ========== 成绩报告 ==========
-
-def generate_class_report(class_id: str) -> Dict[str, Any]:
-    """生成班级成绩报告"""
-    performance = analyze_class_performance(class_id)
-    if not performance.get('success'):
-        return performance
-    
-    report = {
-        'report_id': str(uuid.uuid4()),
-        'generated_at': datetime.now().isoformat(),
-        'class_name': performance['class_name'],
-        'summary': {
-            'total_papers': performance['total_papers'],
-            'total_questions': performance['total_questions'],
-            'overall_accuracy': performance['overall_accuracy']
-        },
-        'knowledge_analysis': performance['knowledge_mastery'],
-        'error_analysis': performance['error_types'],
-        'grade_distribution': performance['grade_distribution'],
-        'teaching_suggestions': performance['teaching_suggestions']
-    }
-    
-    # 保存报告
-    report_path = os.path.join(TEST_LIBRARY_DIR, 'reports', f'report_{class_id[:8]}_{uuid.uuid4().hex[:4]}.json')
-    with open(report_path, 'w', encoding='utf-8') as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    
-    return report
-
-def export_class_report(class_id: str) -> Dict[str, Any]:
-    """导出班级成绩报告"""
-    report = generate_class_report(class_id)
-    if not report.get('report_id'):
-        return {'success': False, 'error': '报告生成失败'}
-    
-    return {
-        'success': True,
-        'report': report
-    }
-
-# ========== 试卷管理 ==========
-
-def add_paper(paper_info: Dict[str, Any]) -> str:
-    """添加试卷"""
-    metadata = load_library_metadata()
-    paper_id = str(uuid.uuid4())
-    paper_info['id'] = paper_id
-    paper_info['upload_time'] = datetime.now().isoformat()
-    metadata['papers'].append(paper_info)
-    save_library_metadata(metadata)
-    return paper_id
-
-def get_all_papers() -> List[Dict[str, Any]]:
-    """获取所有试卷"""
-    return load_library_metadata().get('papers', [])
-
-def get_paper_by_id(paper_id: str) -> Optional[Dict[str, Any]]:
-    """根据ID获取试卷"""
-    papers = get_all_papers()
-    for paper in papers:
-        if paper['id'] == paper_id:
-            return paper
+def get_exam_by_id(exam_id: str) -> Optional[Dict[str, Any]]:
+    """获取考试详情"""
+    metadata = load_exams_metadata()
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            return exam
     return None
 
-def delete_paper(paper_id: str) -> bool:
-    """删除试卷"""
-    metadata = load_library_metadata()
-    original_count = len(metadata['papers'])
-    metadata['papers'] = [p for p in metadata['papers'] if p['id'] != paper_id]
-    if len(metadata['papers']) < original_count:
-        save_library_metadata(metadata)
+def get_exams_by_class(class_id: str) -> List[Dict[str, Any]]:
+    """获取班级的所有考试"""
+    metadata = load_exams_metadata()
+    return [e for e in metadata['exams'] if e.get('class_id') == class_id]
+
+def delete_exam(exam_id: str) -> bool:
+    """删除考试"""
+    metadata = load_exams_metadata()
+    initial_length = len(metadata['exams'])
+    metadata['exams'] = [e for e in metadata['exams'] if e['id'] != exam_id]
+    
+    if len(metadata['exams']) < initial_length:
+        save_exams_metadata(metadata)
         return True
     return False
 
-# ========== 批量上传分析（增强版）==========
+# ========== 答题卡识别（模拟实现）============
 
-def analyze_paper_with_ai(image_path: str, grade: str, class_info: Dict[str, Any] = None) -> Dict[str, Any]:
-    """使用AI分析单张试卷"""
-    try:
-        # 调用processor中的分析函数
-        result = processor.analyze_single_image(image_path, grade)
-        return result
-    except Exception as e:
-        logger.error(f'AI分析失败: {e}')
-        return {
-            'success': False,
-            'error': str(e)
-        }
+def detect_student_number(image_path: str) -> str:
+    """识别学生考号"""
+    # 实际应该调用OCR/AI来识别
+    # 这里返回模拟数据
+    return ''
 
-def detect_student_info(image_path: str) -> Dict[str, Any]:
-    """检测答题卡上的学生信息"""
-    try:
-        # 这里应该调用AI来识别姓名和考号
-        # 暂时返回模拟数据
-        return {
-            'success': True,
-            'name': '',
-            'student_number': '',
-            'confidence': 0.0
-        }
-    except Exception as e:
-        logger.error(f'学生信息检测失败: {e}')
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-def auto_grade_objective_questions(questions: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """自动批改客观题"""
-    graded_questions = []
-    correct_count = 0
-    
+def detect_answers(image_path: str, questions: List[Dict]) -> Dict[int, Any]:
+    """识别学生答题结果"""
+    # 实际应该调用AI来识别每道题的答案
+    # 这里返回模拟数据
+    answers = {}
     for q in questions:
-        q_copy = q.copy()
-        
-        # 判断是否为客观题（选择题、判断题等）
-        if q.get('question_type') in ['choice', 'true_false', 'fill_blank']:
-            # 自动批改
-            if q.get('correct_answer') == q.get('student_answer'):
-                q_copy['is_correct'] = True
-                correct_count += 1
-            else:
-                q_copy['is_correct'] = False
-                q_copy['error_type'] = '答案错误'
-        
-        graded_questions.append(q_copy)
-    
-    return {
-        'questions': graded_questions,
-        'correct_count': correct_count,
-        'total_count': len(graded_questions),
-        'accuracy': (correct_count / len(graded_questions) * 100) if graded_questions else 0
-    }
+        if q['type'] in ['choice', 'true_false']:
+            answers[q['number']] = q.get('correct_answer')
+    return answers
 
-def detect_handwritten_score(image_path: str) -> Dict[str, Any]:
-    """检测教师手写分数"""
+def scan_answer_sheet(exam_id: str, image_path: str) -> Dict[str, Any]:
+    """扫描单张答题卡"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
+    
+    if exam['status'] not in ['ready', 'scanning']:
+        return {'success': False, 'error': '考试状态不允许扫描'}
+    
     try:
-        # 这里应该调用OCR/AI来识别教师手写的分数
-        # 暂时返回模拟数据
+        student_number = detect_student_number(image_path)
+        answers = detect_answers(image_path, exam['questions'])
+        
+        results = []
+        correct_count = 0
+        total_score = 0
+        knowledge_stats = {}
+        
+        for q in exam['questions']:
+            q_num = q['number']
+            student_answer = answers.get(q_num)
+            is_correct = None
+            score = 0
+            
+            if q['type'] in ['choice', 'true_false', 'fill_blank']:
+                if student_answer is not None:
+                    is_correct = (student_answer == q['correct_answer'])
+                    if is_correct:
+                        correct_count += 1
+                        score = q['score']
+                        total_score += q['score']
+                    else:
+                        score = 0
+                else:
+                    is_correct = False
+                    score = 0
+            
+            for kp in q.get('knowledge_points', []):
+                if kp not in knowledge_stats:
+                    knowledge_stats[kp] = {'total': 0, 'correct': 0}
+                knowledge_stats[kp]['total'] += 1
+                if is_correct:
+                    knowledge_stats[kp]['correct'] += 1
+            
+            results.append({
+                'number': q_num,
+                'type': q['type'],
+                'student_answer': student_answer,
+                'correct_answer': q['correct_answer'],
+                'is_correct': is_correct,
+                'score': score,
+                'max_score': q['score'],
+                'knowledge_points': q.get('knowledge_points', [])
+            })
+        
         return {
             'success': True,
-            'total_score': 100.0,
-            'student_score': 85.0,
-            'confidence': 0.85
+            'student_number': student_number,
+            'results': results,
+            'total_score': total_score,
+            'max_score': exam['total_score'],
+            'correct_count': correct_count,
+            'total_questions': len(exam['questions']),
+            'accuracy': (correct_count / len(exam['questions']) * 100) if exam['questions'] else 0,
+            'knowledge_stats': knowledge_stats
         }
     except Exception as e:
-        logger.error(f'手写分数检测失败: {e}')
-        return {
-            'success': False,
-            'error': str(e)
-        }
+        logger.error(f'答题卡扫描失败: {e}')
+        return {'success': False, 'error': str(e)}
 
-def batch_analyze_papers(image_files: List[Tuple[str, bytes]], 
-                         grade: str, 
-                         paper_name: str,
-                         concurrency: int = 4,
-                         class_id: str = None,
-                         auto_detect_names: bool = True,
-                         work_mode: str = 'auto') -> Dict[str, Any]:
-    """批量分析试卷（增强版）
+def batch_scan_answer_sheets(exam_id: str, image_files: List[Tuple[str, bytes]]) -> Dict[str, Any]:
+    """批量扫描答题卡"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
     
-    work_mode: 工作模式
-      - 'auto': 完全自动批改（系统识别答案并批改）
-      - 'manual_score': 教师已手写批改，只识别学生信息和分数
-      - 'hybrid': 混合模式（客观题自动批改，主观题留空）
-    """
-    paper_id = str(uuid.uuid4())
+    metadata = load_exams_metadata()
+    for e in metadata['exams']:
+        if e['id'] == exam_id:
+            e['status'] = 'scanning'
+            save_exams_metadata(metadata)
+            break
     
-    # 保存试卷元数据
-    metadata = load_library_metadata()
-    paper_metadata = {
-        'id': paper_id,
-        'name': paper_name,
-        'grade': grade,
-        'upload_time': datetime.now().isoformat(),
-        'image_count': len(image_files),
-        'status': 'analyzing',
-        'questions': [],
-        'knowledge_points': [],
-        'student_info': {},
-        'multi_page_groups': {},
-        'work_mode': work_mode
-    }
-    metadata['papers'].append(paper_metadata)
-    save_library_metadata(metadata)
+    cls = get_class_by_id(exam.get('class_id'))
+    student_map = {}
+    if cls:
+        for student in cls.get('students', []):
+            student_map[student.get('student_number', '')] = student
     
-    # 获取班级学生信息
-    class_students = {}
-    if class_id:
-        cls = get_class_by_id(class_id)
-        if cls:
-            for student in cls.get('students', []):
-                class_students[student.get('name', '')] = student['id']
-                class_students[student.get('number', '')] = student['id']
+    scanned_results = []
+    matched_count = 0
+    unmatched_count = 0
     
-    # 保存图片文件并分析
-    all_questions = []
-    knowledge_points = set()
-    student_info_map = {}
-    multi_page_groups = {}
-    student_scores = []
-    
-    # 按文件名排序（假设命名规则支持多面识别）
-    sorted_files = sorted(image_files, key=lambda x: x[0])
-    
-    for idx, (filename, image_data) in enumerate(sorted_files):
+    for idx, (filename, image_data) in enumerate(image_files):
         ext = filename.split('.')[-1] if '.' in filename else 'jpg'
-        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', f'{paper_id}_{idx}.{ext}')
-        
-        # 保存图片
+        image_path = os.path.join(TEST_LIBRARY_DIR, 'scans', f'{exam_id}_{idx}.{ext}')
+        os.makedirs(os.path.dirname(image_path), exist_ok=True)
         with open(image_path, 'wb') as f:
             f.write(image_data)
         
-        # 检测学生信息
-        detected_info = detect_student_info(image_path)
-        student_key = detected_info.get('name', '') or detected_info.get('student_number', '')
-        
-        if student_key and auto_detect_names:
-            student_info_map[student_key] = {
-                'name': detected_info.get('name'),
-                'student_number': detected_info.get('student_number'),
-                'confidence': detected_info.get('confidence', 0),
-                'page_index': idx
-            }
-            
-            # 多面关联：如果已有该学生的记录，说明是多面
-            if student_key in multi_page_groups:
-                multi_page_groups[student_key]['pages'].append(idx)
-                multi_page_groups[student_key]['total_pages'] += 1
+        scan_result = scan_answer_sheet(exam_id, image_path)
+        if scan_result.get('success'):
+            student_info = student_map.get(scan_result.get('student_number', ''))
+            if student_info:
+                scan_result['student_id'] = student_info['id']
+                scan_result['student_name'] = student_info['name']
+                matched_count += 1
             else:
-                multi_page_groups[student_key] = {
-                    'pages': [idx],
-                    'total_pages': 1,
-                    'student_id': class_students.get(student_key),
-                    'status': 'complete'
-                }
-        
-        # 根据工作模式处理
-        if work_mode == 'manual_score':
-            # 模式1：教师已手写批改，只识别分数
-            score_detection = detect_handwritten_score(image_path)
-            if score_detection.get('success'):
-                student_scores.append({
-                    'student_key': student_key,
-                    'score': score_detection.get('student_score'),
-                    'total_score': score_detection.get('total_score'),
-                    'confidence': score_detection.get('confidence'),
-                    'page_index': idx
-                })
-        else:
-            # 模式2：自动批改或混合模式
-            # 模拟分析结果
-            num_questions = 5 + idx % 3
-            page_questions = []
+                unmatched_count += 1
+                scan_result['student_id'] = None
+                scan_result['student_name'] = '未匹配'
             
-            for q_idx in range(num_questions):
-                # 模拟客观题
-                question_type = 'choice' if q_idx % 3 == 0 else 'subjective'
-                is_correct = (q_idx % 2 == 0)
-                
-                # 混合模式下主观题不自动批改
-                if work_mode == 'hybrid' and question_type == 'subjective':
-                    is_correct = None
-                
-                question = {
-                    'id': str(uuid.uuid4()),
-                    'page': idx,
-                    'number': q_idx + 1,
-                    'content': f'第{q_idx + 1}题：示例题目内容',
-                    'type': question_type,
-                    'is_correct': is_correct,
-                    'knowledge_points': ['知识点A', '知识点B'][q_idx % 2:(q_idx % 2 + 1)],
-                    'error_type': '计算错误' if (q_idx % 2 != 0 and is_correct is False) else None,
-                    'difficulty': ['简单', '中等', '困难'][q_idx % 3],
-                    'correct_answer': 'A' if q_idx % 2 == 0 else None,
-                    'student_answer': 'A' if q_idx % 2 == 0 else 'B',
-                    'needs_manual_grading': work_mode == 'hybrid' and question_type == 'subjective'
-                }
-                page_questions.append(question)
-                all_questions.append(question)
-                knowledge_points.update(question['knowledge_points'])
+            scan_result['image_path'] = image_path
+            scanned_results.append(scan_result)
     
-    # 更新试卷数据
-    if work_mode == 'manual_score':
-        paper_metadata['student_scores'] = student_scores
-        paper_metadata['status'] = 'completed'
-    else:
-        # 自动批改客观题
-        if work_mode == 'auto':
-            auto_grade_result = auto_grade_objective_questions(all_questions)
-            all_questions = auto_grade_result['questions']
-            correct_count = auto_grade_result['correct_count']
-            accuracy = auto_grade_result['accuracy']
-        else:
-            # 混合模式
-            correct_count = sum(1 for q in all_questions if q.get('is_correct') is True)
-            total_graded = sum(1 for q in all_questions if q.get('is_correct') is not None)
-            accuracy = (correct_count / total_graded * 100) if total_graded > 0 else 0
-        
-        paper_metadata['questions'] = all_questions
-        paper_metadata['knowledge_points'] = list(knowledge_points)
-        paper_metadata['total_questions'] = len(all_questions)
-        paper_metadata['correct_count'] = correct_count
-        paper_metadata['status'] = 'completed'
-        if work_mode == 'hybrid':
-            paper_metadata['status'] = 'needs_manual_review'
-    
-    paper_metadata['student_info'] = student_info_map
-    paper_metadata['multi_page_groups'] = multi_page_groups
-    paper_metadata['class_id'] = class_id
-    paper_metadata['auto_detect_enabled'] = auto_detect_names
-    
-    save_library_metadata(metadata)
-    save_paper_analysis(paper_id, paper_metadata)
-    
-    # 如果有班级ID，自动分配试卷
-    if class_id:
-        assign_paper_to_class(class_id, paper_id)
-        
-        # 自动生成学生成绩记录
-        if work_mode == 'manual_score':
-            for score_record in student_scores:
-                student_key = score_record.get('student_key')
-                student_id = multi_page_groups.get(student_key, {}).get('student_id')
-                if student_id:
-                    add_student_score(
-                        class_id, 
-                        student_id, 
-                        {
-                            'paper_id': paper_id,
-                            'paper_name': paper_name,
-                            'score': score_record.get('score'),
-                            'total_score': score_record.get('total_score')
-                        }
-                    )
+    for e in metadata['exams']:
+        if e['id'] == exam_id:
+            e['scores'] = scanned_results
+            e['status'] = 'reviewing'
+            save_exams_metadata(metadata)
+            break
     
     return {
         'success': True,
-        'paper_id': paper_id,
-        'work_mode': work_mode,
-        'total_questions': len(all_questions) if all_questions else 0,
-        'correct_count': correct_count if work_mode != 'manual_score' else 0,
-        'accuracy': accuracy if work_mode != 'manual_score' else 0,
-        'detected_students': len(student_info_map),
-        'multi_page_count': len([k for k, v in multi_page_groups.items() if v['total_pages'] > 1]),
-        'scores_detected': len(student_scores) if work_mode == 'manual_score' else 0,
-        'analysis_details': {
-            'objective_auto_graded': work_mode in ['auto', 'hybrid'],
-            'student_matched': len([k for k, v in multi_page_groups.items() if v.get('student_id')]),
-            'knowledge_points_found': len(knowledge_points),
-            'needs_manual_review': work_mode == 'hybrid'
-        }
+        'total_scanned': len(scanned_results),
+        'matched': matched_count,
+        'unmatched': unmatched_count,
+        'results': scanned_results
     }
 
-# ========== 知识图谱 ==========
-
-def build_knowledge_point_graph() -> Dict[str, Any]:
-    """构建知识点关联图谱"""
-    papers = get_all_papers()
+def confirm_exam_scores(exam_id: str) -> Dict[str, Any]:
+    """确认考试成绩"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
     
-    nodes = []
-    edges = []
-    knowledge_data = {}
+    if exam['status'] != 'reviewing':
+        return {'success': False, 'error': '考试状态不允许确认'}
     
-    for paper in papers:
-        analysis = load_paper_analysis(paper.get('id'))
-        if not analysis:
-            continue
-        
-        questions = analysis.get('questions', [])
-        for q in questions:
-            kps = q.get('knowledge_points', [])
-            for kp in kps:
-                if kp not in knowledge_data:
-                    knowledge_data[kp] = {'total': 0, 'correct': 0}
-                knowledge_data[kp]['total'] += 1
-                if q.get('is_correct', False):
-                    knowledge_data[kp]['correct'] += 1
+    metadata = load_exams_metadata()
+    for e in metadata['exams']:
+        if e['id'] == exam_id:
+            scores = [s['total_score'] for s in e['scores'] if s.get('student_id')]
+            if scores:
+                e['statistics'] = {
+                    'total_students': len(scores),
+                    'average_score': sum(scores) / len(scores),
+                    'highest_score': max(scores),
+                    'lowest_score': min(scores),
+                    'pass_count': sum(1 for s in scores if s / e['total_score'] >= 0.6),
+                    'pass_rate': sum(1 for s in scores if s / e['total_score'] >= 0.6) / len(scores) * 100
+                }
             
-            # 构建关联
-            for i in range(len(kps)):
-                for j in range(i+1, len(kps)):
-                    source, target = sorted([kps[i], kps[j]])
-                    edge_found = False
-                    for edge in edges:
-                        if edge['source'] == source and edge['target'] == target:
-                            edge['weight'] += 1
-                            edge_found = True
-                            break
-                    if not edge_found:
-                        edges.append({
-                            'source': source,
-                            'target': target,
-                            'weight': 1
-                        })
+            if e.get('class_id'):
+                for score in e['scores']:
+                    if score.get('student_id'):
+                        add_student_score(
+                            e['class_id'],
+                            score['student_id'],
+                            {
+                                'paper_id': exam_id,
+                                'paper_name': e['name'],
+                                'score': score['total_score'],
+                                'total_score': e['total_score'],
+                                'notes': f"答题卡扫描 - {score.get('student_name', '未知')}"
+                            }
+                        )
+            
+            e['status'] = 'completed'
+            save_exams_metadata(metadata)
+            return {'success': True, 'statistics': e['statistics']}
     
-    for kp, data in knowledge_data.items():
-        mastery_rate = (data['correct'] / data['total'] * 100) if data['total'] > 0 else 0
-        nodes.append({
-            'id': kp,
-            'name': kp,
-            'masteryRate': round(mastery_rate, 1),
-            'appearanceCount': data['total']
+    return {'success': False, 'error': '考试不存在'}
+
+def adjust_score(exam_id: str, student_number: str, score: float) -> Dict[str, Any]:
+    """调整单条成绩"""
+    metadata = load_exams_metadata()
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            for s in exam['scores']:
+                if s.get('student_number') == student_number:
+                    s['total_score'] = score
+                    s['adjusted'] = True
+                    save_exams_metadata(metadata)
+                    return {'success': True}
+            return {'success': False, 'error': '未找到该学生成绩'}
+    return {'success': False, 'error': '考试不存在'}
+
+def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
+    """获取考试详细分析"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
+    
+    question_stats = []
+    for q in exam['questions']:
+        correct_count = 0
+        for score in exam.get('scores', []):
+            for r in score.get('results', []):
+                if r['number'] == q['number'] and r.get('is_correct'):
+                    correct_count += 1
+        
+        total = len(exam.get('scores', []))
+        question_stats.append({
+            'number': q['number'],
+            'type': q['type'],
+            'knowledge_points': q.get('knowledge_points', []),
+            'correct_count': correct_count,
+            'error_count': total - correct_count,
+            'error_rate': ((total - correct_count) / total * 100) if total > 0 else 0
         })
     
+    knowledge_stats = {}
+    for q in exam['questions']:
+        for kp in q.get('knowledge_points', []):
+            if kp not in knowledge_stats:
+                knowledge_stats[kp] = {'total': 0, 'correct': 0}
+            knowledge_stats[kp]['total'] += len(exam.get('scores', []))
+    
+    for score in exam.get('scores', []):
+        for r in score.get('results', []):
+            for kp in r.get('knowledge_points', []):
+                if kp in knowledge_stats and r.get('is_correct'):
+                    knowledge_stats[kp]['correct'] += 1
+    
+    for kp, stats in knowledge_stats.items():
+        stats['mastery_rate'] = (stats['correct'] / stats['total'] * 100) if stats['total'] > 0 else 0
+    
     return {
-        'nodes': nodes,
-        'edges': edges,
-        'statistics': nodes
+        'success': True,
+        'exam': exam,
+        'question_stats': question_stats,
+        'knowledge_stats': knowledge_stats,
+        'statistics': exam.get('statistics', {})
     }
 
-# ========== 兼容现有API ==========
-
-def get_all_knowledge_points() -> List[str]:
-    """获取所有知识点列表"""
-    papers = get_all_papers()
-    kp_set = set()
-    for paper in papers:
-        analysis = load_paper_analysis(paper.get('id'))
-        if analysis:
-            for q in analysis.get('questions', []):
-                kp_set.update(q.get('knowledge_points', []))
-    return sorted(list(kp_set))
-
-def search_questions(keyword: str = None,
-                    knowledge_point: str = None,
-                    is_correct: bool = None) -> List[Dict[str, Any]]:
-    """搜索题目"""
-    results = []
-    papers = get_all_papers()
-    
-    for paper in papers:
-        analysis = load_paper_analysis(paper.get('id'))
-        if not analysis:
-            continue
-        
-        for q in analysis.get('questions', []):
-            match = True
-            
-            if keyword and keyword.lower() not in q.get('content', '').lower():
-                match = False
-            if knowledge_point and knowledge_point not in q.get('knowledge_points', []):
-                match = False
-            if is_correct is not None and q.get('is_correct', False) != is_correct:
-                match = False
-            
-            if match:
-                q_copy = q.copy()
-                q_copy['paper_id'] = paper.get('id')
-                q_copy['paper_name'] = paper.get('name', '未命名试卷')
-                results.append(q_copy)
-    
-    return results
+# ========== 批量上传分析（兼容旧接口）==========
 
 def get_all_wrong_questions(paper_ids: List[str] = None, grade: str = None) -> List[Dict[str, Any]]:
-    """获取错题（兼容现有API）"""
+    """获取错题"""
     papers = get_all_papers()
     if paper_ids:
         papers = [p for p in papers if p['id'] in paper_ids]
@@ -956,148 +707,161 @@ def generate_prompt_optimization_suggestions(paper_ids: List[str] = None, grade:
             all_questions.extend(analysis.get('questions', []))
     
     if not all_questions:
-        return {
-            'success': True,
-            'suggestions': ['暂无数据，请先上传试卷'],
-            'stats': {}
-        }
+        return {'success': True, 'suggestions': ['暂无数据，请先上传试卷'], 'stats': {}}
     
     total_questions = len(all_questions)
     correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
     accuracy = correct_count / total_questions * 100 if total_questions > 0 else 0
     
-    # 统计错误类型
-    error_types = Counter()
-    for q in all_questions:
-        if not q.get('is_correct', True):
-            error_types[q.get('error_type', '未知')] += 1
-    
-    # 统计知识点掌握情况
-    knowledge_stats = {}
-    for q in all_questions:
-        for kp in q.get('knowledge_points', []):
-            if kp not in knowledge_stats:
-                knowledge_stats[kp] = {'total': 0, 'correct': 0}
-            knowledge_stats[kp]['total'] += 1
-            if q.get('is_correct', False):
-                knowledge_stats[kp]['correct'] += 1
-    
     suggestions = []
-    
     if accuracy < 60:
-        suggestions.append({
-            'type': '整体建议',
-            'priority': 'high',
-            'suggestion': '整体正确率较低，建议增加基础知识点的讲解'
-        })
+        suggestions.append({'type': '整体建议', 'priority': 'high', 'suggestion': '整体正确率较低，建议增加基础知识点的讲解'})
     elif accuracy < 80:
-        suggestions.append({
-            'type': '整体建议',
-            'priority': 'medium',
-            'suggestion': '整体情况尚可，建议针对薄弱知识点进行专项练习'
-        })
+        suggestions.append({'type': '整体建议', 'priority': 'medium', 'suggestion': '整体情况尚可，建议针对薄弱知识点进行专项练习'})
     else:
-        suggestions.append({
-            'type': '整体建议',
-            'priority': 'low',
-            'suggestion': '整体掌握良好，可以适当增加拓展内容'
-        })
+        suggestions.append({'type': '整体建议', 'priority': 'low', 'suggestion': '整体掌握良好，可以适当增加拓展内容'})
     
-    # 错误类型建议
-    if error_types:
-        top_error = error_types.most_common(1)[0]
-        suggestions.append({
-            'type': '错误分析',
-            'priority': 'high' if top_error[1] / total_questions > 0.3 else 'medium',
-            'suggestion': f'错误类型"{top_error[0]}"出现较多，建议重点讲解'
-        })
+    return {'success': True, 'suggestions': suggestions, 'stats': {'total_papers': len(papers), 'total_questions': total_questions, 'accuracy': round(accuracy, 1)}}
+
+def batch_analyze_papers(image_files: List[Tuple[str, bytes]], 
+                         grade: str, 
+                         paper_name: str,
+                         concurrency: int = 4,
+                         class_id: str = None,
+                         auto_detect_names: bool = True,
+                         work_mode: str = 'auto') -> Dict[str, Any]:
+    """批量分析试卷（兼容旧接口）"""
+    paper_id = str(uuid.uuid4())
     
-    # 知识点建议
-    weak_knowledge = []
-    for kp, stats in knowledge_stats.items():
-        if stats['total'] >= 3:
-            mastery = stats['correct'] / stats['total'] * 100
-            if mastery < 60:
-                weak_knowledge.append((kp, mastery))
+    metadata = load_library_metadata()
+    paper_metadata = {
+        'id': paper_id,
+        'name': paper_name,
+        'grade': grade,
+        'upload_time': datetime.now().isoformat(),
+        'image_count': len(image_files),
+        'status': 'completed',
+        'questions': [],
+        'knowledge_points': [],
+        'work_mode': work_mode
+    }
+    metadata['papers'].append(paper_metadata)
+    save_library_metadata(metadata)
     
-    if weak_knowledge:
-        weak_knowledge.sort(key=lambda x: x[1])
-        suggestions.append({
-            'type': '薄弱知识点',
-            'priority': 'high',
-            'suggestion': f'以下知识点掌握较差：{"、".join([kp[0] for kp in weak_knowledge[:3]])}'
-        })
+    for idx, (filename, image_data) in enumerate(image_files):
+        ext = filename.split('.')[-1] if '.' in filename else 'jpg'
+        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', f'{paper_id}_{idx}.{ext}')
+        with open(image_path, 'wb') as f:
+            f.write(image_data)
     
     return {
         'success': True,
-        'suggestions': suggestions,
-        'stats': {
-            'total_papers': len(papers),
-            'total_questions': total_questions,
-            'accuracy': round(accuracy, 1)
+        'paper_id': paper_id,
+        'total_questions': 0,
+        'detected_students': 0
+    }
+
+def delete_paper(paper_id: str) -> bool:
+    """删除试卷"""
+    metadata = load_library_metadata()
+    initial_length = len(metadata['papers'])
+    metadata['papers'] = [p for p in metadata['papers'] if p['id'] != paper_id]
+    
+    if len(metadata['papers']) < initial_length:
+        save_library_metadata(metadata)
+        return True
+    return False
+
+# ========== 知识图谱 ==========
+
+def build_knowledge_point_graph() -> Dict[str, Any]:
+    """构建知识点关联图谱"""
+    papers = get_all_papers()
+    knowledge_relations = {}
+    knowledge_mastery = {}
+    
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if not analysis:
+            continue
+        
+        for question in analysis.get('questions', []):
+            for kp in question.get('knowledge_points', []):
+                if kp not in knowledge_relations:
+                    knowledge_relations[kp] = {'total_questions': 0, 'correct_count': 0, 'students': []}
+                
+                knowledge_relations[kp]['total_questions'] += 1
+                if question.get('is_correct', False):
+                    knowledge_relations[kp]['correct_count'] += 1
+    
+    for kp, data in knowledge_relations.items():
+        if data['total_questions'] > 0:
+            knowledge_mastery[kp] = {
+                'mastery_rate': data['correct_count'] / data['total_questions'] * 100,
+                'total_questions': data['total_questions'],
+                'correct_count': data['correct_count']
+            }
+    
+    return {'success': True, 'knowledge_points': knowledge_mastery, 'relations': knowledge_relations}
+
+# ========== 班级学情分析 ==========
+
+def analyze_class_performance(class_id: str) -> Dict[str, Any]:
+    """分析班级整体学情"""
+    cls = get_class_by_id(class_id)
+    if not cls:
+        return {'success': False, 'error': '班级不存在'}
+    
+    scores = get_class_scores(class_id)
+    
+    if not scores:
+        return {'success': True, 'class_id': class_id, 'data': None}
+    
+    score_values = [s['score'] for s in scores]
+    percentages = [s['score'] / s['total_score'] * 100 if s['total_score'] > 0 else 0 for s in scores]
+    
+    return {
+        'success': True,
+        'class_id': class_id,
+        'class_name': cls['name'],
+        'total_students': len(cls.get('students', [])),
+        'participated': len(scores),
+        'statistics': {
+            'average_score': round(sum(score_values) / len(score_values), 1) if score_values else 0,
+            'average_percentage': round(sum(percentages) / len(percentages), 1) if percentages else 0,
+            'highest_score': max(score_values) if score_values else 0,
+            'lowest_score': min(score_values) if score_values else 0,
+            'pass_rate': round(sum(1 for p in percentages if p >= 60) / len(percentages) * 100, 1) if percentages else 0
         }
     }
 
-def get_all_tags() -> List[str]:
-    """获取所有标签（兼容现有API）"""
-    return []
-
-def update_paper_tags(paper_id: str, tags: List[str]) -> bool:
-    """更新标签（兼容现有API）"""
-    return True
-
-def get_papers_by_tag(tag: str) -> List[Dict[str, Any]]:
-    """按标签获取试卷（兼容现有API）"""
-    return []
-
-def generate_wrong_questions_practice(paper_ids: List[str] = None, max_questions: int = 50) -> Dict[str, Any]:
-    """生成错题练习（兼容现有API）"""
-    wrong_questions = get_wrong_questions(paper_ids)
-    return {
-        'total_wrong': len(wrong_questions),
-        'selected_count': min(len(wrong_questions), max_questions),
-        'by_knowledge_point': {},
-        'questions': wrong_questions[:max_questions]
-    }
-
-def export_library_statistics() -> Dict[str, Any]:
-    """导出统计信息（兼容现有API）"""
-    papers = get_all_papers()
-    all_questions = []
-    for paper in papers:
-        analysis = load_paper_analysis(paper.get('id'))
-        if analysis:
-            all_questions.extend(analysis.get('questions', []))
+def generate_class_report(class_id: str) -> Dict[str, Any]:
+    """生成班级报告"""
+    performance = analyze_class_performance(class_id)
+    if not performance.get('success'):
+        return performance
     
-    return {
-        'total_papers': len(papers),
-        'total_questions': len(all_questions),
-        'correct_count': sum(1 for q in all_questions if q.get('is_correct', False)),
-        'overall_accuracy': 0.0,
-        'knowledge_analysis': [],
-        'error_analysis': [],
-        'papers': papers
-    }
-
-def export_to_json(paper_ids: List[str]) -> str:
-    """导出试卷（兼容现有API）"""
-    papers = get_all_papers()
-    if paper_ids:
-        papers = [p for p in papers if p['id'] in paper_ids]
+    statistics = performance.get('statistics', {})
     
-    export_path = os.path.join(TEST_LIBRARY_DIR, f'export_{uuid.uuid4().hex[:8]}.json')
-    with open(export_path, 'w', encoding='utf-8') as f:
-        json.dump(papers, f, ensure_ascii=False, indent=2)
-    return export_path
-
-def export_questions_to_json(questions: List[Dict[str, Any]], paper_name: str = "导出题目") -> str:
-    """导出题目（兼容现有API）"""
-    export_path = os.path.join(TEST_LIBRARY_DIR, f'export_{uuid.uuid4().hex[:8]}.json')
-    with open(export_path, 'w', encoding='utf-8') as f:
-        json.dump({
-            'paper_name': paper_name,
-            'export_time': datetime.now().isoformat(),
-            'total_questions': len(questions),
-            'questions': questions
-        }, f, ensure_ascii=False, indent=2)
-    return export_path
+    suggestions = []
+    if statistics.get('average_percentage', 0) < 60:
+        suggestions.append('班级整体成绩偏低，建议加强基础教学')
+    if statistics.get('pass_rate', 0) < 70:
+        suggestions.append('及格率有待提高，关注中下游学生')
+    
+    report = {
+        'generated_at': datetime.now().isoformat(),
+        'class_id': class_id,
+        'class_name': performance.get('class_name'),
+        'statistics': statistics,
+        'suggestions': suggestions,
+        'participated': performance.get('participated', 0)
+    }
+    
+    # 保存报告
+    reports_dir = os.path.join(REPORTS_DIR, class_id)
+    os.makedirs(reports_dir, exist_ok=True)
+    report_path = os.path.join(reports_dir, f'report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json')
+    save_json(report_path, report)
+    
+    return {'success': True, 'report': report}
