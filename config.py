@@ -21,6 +21,7 @@ PROCESSING_DIR = 'processing'
 RESULTS_DIR = 'results'
 PAUSE_FLAG_PATH = 'paused.flag'
 CANCELLED_DIR = 'cancelled'
+TEST_LIBRARY_DIR = 'test_library'  # 试卷库目录
 
 # 默认配置（初次创建时使用）
 DEFAULT_CONFIG = {

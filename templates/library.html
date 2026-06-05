@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>试卷库管理 - 数学作业智能批改助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #ccc;
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center text-indigo-600 mb-8">📚 试卷库管理</h1>
+        
+        <!-- 导航标签 -->
+        <div class="flex mb-8 bg-white rounded-lg shadow p-2 gap-2">
+            <button onclick="showTab('upload')" id="tab-upload" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700">
+                📤 批量上传
+            </button>
+            <button onclick="showTab('papers')" id="tab-papers" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                📋 试卷列表
+            </button>
+            <button onclick="showTab('statistics')" id="tab-statistics" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                📊 统计分析
+            </button>
+            <button onclick="showTab('optimize')" id="tab-optimize" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                🎯 提示词优化
+            </button>
+        </div>
+        
+        <!-- 批量上传标签页 -->
+        <div id="panel-upload" class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">📤 批量上传试卷图片</h2>
+            
+            <!-- 年级和名称设置 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择年级</label>
+                    <select id="grade-select" class="shadow border rounded w-full py-2 px-3">
+                        <option value="1-2">小学1-2年级</option>
+                        <option value="3-4">小学3-4年级</option>
+                        <option value="5-6">小学5-6年级</option>
+                        <option value="7-9">初中</option>
+                        <option value="10-12" selected>高中</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">试卷名称</label>
+                    <input type="text" id="paper-name" placeholder="例如：期中测试卷" class="shadow border rounded w-full py-2 px-3">
+                </div>
+            </div>
+            
+            <!-- 拖拽上传区 -->
+            <div id="drop-zone" class="drop-zone rounded-lg p-8 text-center cursor-pointer mb-4">
+                <div class="text-gray-500">
+                    <div class="text-4xl mb-2">📁</div>
+                    <p class="font-medium">拖拽图片文件到这里，或点击选择文件</p>
+                    <p class="text-sm text-gray-400 mt-1">支持多选，建议一次上传10-50张图片</p>
+                </div>
+                <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+            </div>
+            
+            <!-- 已选择文件 -->
+            <div id="selected-files" class="mb-4 hidden">
+                <h3 class="font-semibold mb-2">已选择文件：</h3>
+                <div id="file-list" class="max-h-40 overflow-y-auto bg-gray-50 rounded p-3"></div>
+            </div>
+            
+            <!-- 上传按钮 -->
+            <button onclick="uploadPapers()" id="upload-btn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded disabled:opacity-50 disabled:cursor-not-allowed">
+                开始分析
+            </button>
+            
+            <!-- 进度显示 -->
+            <div id="upload-progress" class="hidden mt-4">
+                <div class="mb-2 font-medium">分析进度：</div>
+                <div class="bg-gray-200 rounded-full h-4 overflow-hidden">
+                    <div id="progress-bar" class="progress-bar bg-blue-500 h-full" style="width: 0%"></div>
+                </div>
+                <div id="progress-text" class="text-sm text-gray-600 mt-1">准备中...</div>
+            </div>
+        </div>
+        
+        <!-- 试卷列表标签页 -->
+        <div id="panel-papers" class="bg-white rounded-lg shadow p-6 hidden">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold">📋 试卷列表</h2>
+                <button onclick="loadLibraryStatus()" class="text-blue-500 hover:text-blue-700 text-sm">
+                    🔄 刷新
+                </button>
+            </div>
+            
+            <div id="papers-container">
+                <p class="text-gray-500 text-center py-8">加载中...</p>
+            </div>
+        </div>
+        
+        <!-- 统计分析标签页 -->
+        <div id="panel-statistics" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">📊 试卷库统计</h2>
+            
+            <div id="statistics-container" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <!-- 统计卡片会在这里动态生成 -->
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="font-semibold mb-3">知识点掌握情况</h3>
+                    <canvas id="knowledge-chart" height="300"></canvas>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <h3 class="font-semibold mb-3">错误类型分布</h3>
+                    <canvas id="error-chart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 提示词优化标签页 -->
+        <div id="panel-optimize" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">🎯 提示词优化建议</h2>
+            
+            <!-- 筛选选项 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择试卷</label>
+                    <select id="optimize-paper-select" class="shadow border rounded w-full py-2 px-3">
+                        <option value="all">全部试卷</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">按年级筛选</label>
+                    <select id="optimize-grade-select" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">全部年级</option>
+                        <option value="1-2">小学1-2年级</option>
+                        <option value="3-4">小学3-4年级</option>
+                        <option value="5-6">小学5-6年级</option>
+                        <option value="7-9">初中</option>
+                        <option value="10-12">高中</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button onclick="generateOptimization()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded mb-6">
+                生成优化建议
+            </button>
+            
+            <div id="optimization-result">
+                <!-- 优化结果会在这里显示 -->
+            </div>
+        </div>
+        
+        <!-- 试卷详情模态框 -->
+        <div id="paper-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+            <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 id="modal-title" class="text-xl font-semibold">试卷详情</h2>
+                        <button onclick="closePaperModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    <div id="modal-content">
+                        <!-- 试卷详情内容 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SERVER_URL = window.location.origin;
+        let selectedFiles = [];
+        let knowledgeChart = null;
+        let errorChart = null;
+        
+        // 页面初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initDragDrop();
+            loadLibraryStatus();
+        });
+        
+        // 标签页切换
+        function showTab(tabName) {
+            // 隐藏所有面板
+            document.getElementById('panel-upload').classList.add('hidden');
+            document.getElementById('panel-papers').classList.add('hidden');
+            document.getElementById('panel-statistics').classList.add('hidden');
+            document.getElementById('panel-optimize').classList.add('hidden');
+            
+            // 重置标签样式
+            document.getElementById('tab-upload').className = 'flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100';
+            document.getElementById('tab-papers').className = 'flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100';
+            document.getElementById('tab-statistics').className = 'flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100';
+            document.getElementById('tab-optimize').className = 'flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100';
+            
+            // 显示选中面板
+            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+            document.getElementById(`tab-${tabName}`).className = 'flex-1 px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700';
+            
+            // 加载对应数据
+            if (tabName === 'statistics') {
+                loadStatistics();
+            } else if (tabName === 'optimize') {
+                loadOptimizeOptions();
+            } else if (tabName === 'papers') {
+                loadLibraryStatus();
+            }
+        }
+        
+        // 初始化拖拽上传
+        function initDragDrop() {
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+            
+            dropZone.addEventListener('click', () => fileInput.click());
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+        
+        // 处理选择的文件
+        function handleFiles(files) {
+            selectedFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            
+            if (selectedFiles.length > 0) {
+                updateFileList();
+                document.getElementById('selected-files').classList.remove('hidden');
+            }
+        }
+        
+        // 更新文件列表显示
+        function updateFileList() {
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = selectedFiles.map((f, i) => 
+                `<div class="flex justify-between items-center py-1 border-b border-gray-100">
+                    <span class="text-sm">${f.name}</span>
+                    <button onclick="removeFile(${i})" class="text-red-500 hover:text-red-700 text-sm">✕</button>
+                </div>`
+            ).join('');
+        }
+        
+        // 移除文件
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            if (selectedFiles.length === 0) {
+                document.getElementById('selected-files').classList.add('hidden');
+            } else {
+                updateFileList();
+            }
+        }
+        
+        // 上传试卷
+        async function uploadPapers() {
+            if (selectedFiles.length === 0) {
+                alert('请选择要上传的文件');
+                return;
+            }
+            
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            formData.append('name', document.getElementById('paper-name').value || '未命名试卷');
+            formData.append('grade', document.getElementById('grade-select').value);
+            formData.append('concurrency', '4');
+            
+            // 显示进度
+            document.getElementById('upload-progress').classList.remove('hidden');
+            document.getElementById('upload-btn').disabled = true;
+            
+            try {
+                updateProgress(10, '上传中...');
+                
+                const response = await fetch(`${SERVER_URL}/api/library/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateProgress(100, `分析完成！共分析了 ${result.total_questions} 道题，正确率 ${result.accuracy_rate.toFixed(1)}%`);
+                    
+                    setTimeout(() => {
+                        loadLibraryStatus();
+                        showTab('papers');
+                    }, 1500);
+                } else {
+                    alert('上传失败：' + result.error);
+                }
+            } catch (e) {
+                console.error('上传失败：', e);
+                alert('上传失败，请检查网络连接');
+            } finally {
+                document.getElementById('upload-btn').disabled = false;
+            }
+        }
+        
+        // 更新进度条
+        function updateProgress(percent, text) {
+            document.getElementById('progress-bar').style.width = `${percent}%`;
+            document.getElementById('progress-text').textContent = text;
+        }
+        
+        // 加载试卷库状态
+        async function loadLibraryStatus() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/status`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderPapersList(result.papers);
+                    updateOptimizeOptions(result.papers);
+                }
+            } catch (e) {
+                console.error('加载失败：', e);
+                document.getElementById('papers-container').innerHTML = 
+                    '<p class="text-red-500 text-center py-8">加载失败，请刷新重试</p>';
+            }
+        }
+        
+        // 渲染试卷列表
+        function renderPapersList(papers) {
+            const container = document.getElementById('papers-container');
+            
+            if (!papers || papers.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8">还没有上传过试卷，去「批量上传」添加吧！</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${papers.map(paper => `
+                        <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="showPaperDetail('${paper.id}')">
+                            <h3 class="font-semibold truncate">${paper.name}</h3>
+                            <p class="text-sm text-gray-600 mb-2">
+                                ${paper.grade || '未指定'} • ${paper.total_questions} 题
+                            </p>
+                            <div class="flex items-center justify-between">
+                                <span class="text-sm">
+                                    ${paper.status === 'completed' ? '✅ 已完成' : '⏳ 分析中'}
+                                </span>
+                                ${paper.accuracy_rate !== undefined ? `
+                                    <span class="text-sm font-medium ${paper.accuracy_rate >= 70 ? 'text-green-600' : paper.accuracy_rate >= 40 ? 'text-yellow-600' : 'text-red-600'}">
+                                        正确率 ${paper.accuracy_rate.toFixed(0)}%
+                                    </span>
+                                ` : ''}
+                            </div>
+                            <div class="mt-2 text-xs text-gray-400">
+                                ${new Date(paper.upload_time).toLocaleString('zh-CN')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        // 显示试卷详情
+        async function showPaperDetail(paperId) {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/paper/${paperId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderPaperModal(result.analysis);
+                }
+            } catch (e) {
+                console.error('加载详情失败：', e);
+                alert('加载详情失败');
+            }
+        }
+        
+        // 渲染试卷详情模态框
+        function renderPaperModal(analysis) {
+            document.getElementById('modal-title').textContent = analysis.name;
+            
+            let content = `
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-blue-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-blue-700">${analysis.total_questions}</div>
+                        <div class="text-sm text-gray-600">题目总数</div>
+                    </div>
+                    <div class="bg-green-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-green-700">${analysis.correct_count}</div>
+                        <div class="text-sm text-gray-600">做对题目</div>
+                    </div>
+                    <div class="bg-purple-50 rounded p-3 text-center">
+                        <div class="text-2xl font-bold text-purple-700">${analysis.accuracy_rate.toFixed(1)}%</div>
+                        <div class="text-sm text-gray-600">正确率</div>
+                    </div>
+                </div>
+            `;
+            
+            // 知识点分析
+            if (analysis.knowledge_points && analysis.knowledge_points.length > 0) {
+                content += `
+                    <h3 class="font-semibold mb-3">📚 知识点分析</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-6">
+                        ${analysis.knowledge_points.slice(0, 6).map(kp => `
+                            <div class="border rounded p-2">
+                                <div class="flex justify-between mb-1">
+                                    <span class="font-medium text-sm">${kp.knowledge_point}</span>
+                                    <span class="text-sm ${kp.mastery_rate >= 70 ? 'text-green-600' : kp.mastery_rate >= 40 ? 'text-yellow-600' : 'text-red-600'}">
+                                        掌握率 ${kp.mastery_rate.toFixed(0)}%
+                                    </span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div class="h-full rounded-full ${kp.mastery_rate >= 70 ? 'bg-green-500' : kp.mastery_rate >= 40 ? 'bg-yellow-500' : 'bg-red-500'}"
+                                        style="width: ${kp.mastery_rate}%"></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+            
+            // 题目列表
+            content += `
+                <h3 class="font-semibold mb-3">📝 题目详情</h3>
+                <div class="max-h-64 overflow-y-auto">
+                    ${analysis.questions.map((q, i) => `
+                        <div class="border-b py-2">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="font-medium">第 ${i+1} 题</span>
+                                <span class="text-sm ${q.is_correct ? 'text-green-600' : 'text-red-600'}">
+                                    ${q.is_correct ? '✅ 正确' : '❌ 错误'}
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-700 mb-1">${q.content}</p>
+                            ${q.knowledge_points ? `
+                                <div class="flex flex-wrap gap-1">
+                                    ${q.knowledge_points.map(kp => 
+                                        `<span class="text-xs bg-gray-100 px-2 py-1 rounded">${kp}</span>`
+                                    ).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            document.getElementById('modal-content').innerHTML = content;
+            document.getElementById('paper-modal').classList.remove('hidden');
+        }
+        
+        // 关闭试卷详情
+        function closePaperModal() {
+            document.getElementById('paper-modal').classList.add('hidden');
+        }
+        
+        // 加载统计信息
+        async function loadStatistics() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/statistics`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderStatistics(result.statistics);
+                }
+            } catch (e) {
+                console.error('加载统计失败：', e);
+            }
+        }
+        
+        // 渲染统计信息
+        function renderStatistics(stats) {
+            const container = document.getElementById('statistics-container');
+            
+            container.innerHTML = `
+                <div class="bg-blue-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl font-bold text-blue-700">${stats.total_papers}</div>
+                    <div class="text-gray-600">试卷数量</div>
+                </div>
+                <div class="bg-green-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl font-bold text-green-700">${stats.total_questions}</div>
+                    <div class="text-gray-600">题目总数</div>
+                </div>
+                <div class="bg-purple-50 rounded-lg p-4 text-center">
+                    <div class="text-3xl font-bold text-purple-700">${stats.overall_accuracy.toFixed(1)}%</div>
+                    <div class="text-gray-600">总体正确率</div>
+                </div>
+            `;
+            
+            // 知识点图表
+            if (stats.knowledge_analysis && stats.knowledge_analysis.length > 0) {
+                renderKnowledgeChart(stats.knowledge_analysis.slice(0, 8));
+            }
+            
+            // 错误类型图表
+            if (stats.error_analysis && stats.error_analysis.length > 0) {
+                renderErrorChart(stats.error_analysis);
+            }
+        }
+        
+        // 渲染知识点图表
+        function renderKnowledgeChart(data) {
+            const ctx = document.getElementById('knowledge-chart').getContext('2d');
+            
+            if (knowledgeChart) knowledgeChart.destroy();
+            
+            knowledgeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(d => d.knowledge_point.substring(0, 10)),
+                    datasets: [{
+                        label: '掌握率 (%)',
+                        data: data.map(d => d.mastery_rate),
+                        backgroundColor: data.map(d => 
+                            d.mastery_rate >= 70 ? 'rgba(34, 197, 94, 0.7)' : 
+                            d.mastery_rate >= 40 ? 'rgba(251, 191, 36, 0.7)' : 'rgba(239, 68, 68, 0.7)'
+                        )
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, max: 100 } }
+                }
+            });
+        }
+        
+        // 渲染错误类型图表
+        function renderErrorChart(data) {
+            const ctx = document.getElementById('error-chart').getContext('2d');
+            
+            if (errorChart) errorChart.destroy();
+            
+            errorChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.map(d => d.error_type),
+                    datasets: [{
+                        data: data.map(d => d.count),
+                        backgroundColor: [
+                            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
+                        ]
+                    }]
+                },
+                options: { responsive: true }
+            });
+        }
+        
+        // 更新优化选项
+        function updateOptimizeOptions(papers) {
+            const select = document.getElementById('optimize-paper-select');
+            select.innerHTML = '<option value="all">全部试卷</option>' + 
+                papers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        }
+        
+        // 加载优化选项
+        async function loadOptimizeOptions() {
+            await loadLibraryStatus();
+        }
+        
+        // 生成优化建议
+        async function generateOptimization() {
+            const paperId = document.getElementById('optimize-paper-select').value;
+            const grade = document.getElementById('optimize-grade-select').value;
+            
+            const body = {};
+            if (paperId !== 'all') body.paper_ids = [paperId];
+            if (grade) body.grade = grade;
+            
+            document.getElementById('optimization-result').innerHTML = 
+                '<p class="text-center py-8">生成中...</p>';
+            
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/optimize`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderOptimizationResult(result);
+                } else {
+                    document.getElementById('optimization-result').innerHTML = 
+                        `<p class="text-red-500 text-center py-8">${result.error}</p>`;
+                }
+            } catch (e) {
+                console.error('生成失败：', e);
+                document.getElementById('optimization-result').innerHTML = 
+                    '<p class="text-red-500 text-center py-8">生成失败，请重试</p>';
+            }
+        }
+        
+        // 渲染优化结果
+        function renderOptimizationResult(result) {
+            let html = '';
+            
+            // 统计卡片
+            html += `
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <h3 class="font-semibold mb-3">📊 分析统计</h3>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div class="text-center">
+                            <div class="text-xl font-bold">${result.statistics.total_papers}</div>
+                            <div class="text-sm text-gray-600">分析试卷</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold">${result.statistics.total_questions}</div>
+                            <div class="text-sm text-gray-600">题目数量</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold">${result.statistics.overall_accuracy.toFixed(1)}%</div>
+                            <div class="text-sm text-gray-600">正确率</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 优化建议
+            html += `
+                <div class="mb-6">
+                    <h3 class="font-semibold mb-3">💡 优化建议</h3>
+                    <div class="space-y-3">
+                        ${result.suggestions.map(s => `
+                            <div class="border-l-4 ${s.priority === '高' ? 'border-red-500 bg-red-50' : 'border-yellow-500 bg-yellow-50'} pl-4 py-2">
+                                <div class="font-medium">${s.category} (${s.priority}优先级)</div>
+                                <div class="text-sm text-gray-700">${s.suggestion}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            
+            // 优化后的提示词
+            html += `
+                <div class="bg-gray-900 text-white rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-semibold">📝 优化后的提示词</h3>
+                        <button onclick="copyOptimizedPrompt()" class="text-sm bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded">
+                            📋 复制
+                        </button>
+                    </div>
+                    <pre id="optimized-prompt" class="text-sm overflow-x-auto whitespace-pre-wrap">${escapeHtml(result.optimized_prompt)}</pre>
+                </div>
+            `;
+            
+            document.getElementById('optimization-result').innerHTML = html;
+        }
+        
+        // 复制优化后的提示词
+        function copyOptimizedPrompt() {
+            const prompt = document.getElementById('optimized-prompt').textContent;
+            navigator.clipboard.writeText(prompt).then(() => {
+                alert('已复制到剪贴板！');
+            }).catch(() => {
+                alert('复制失败，请手动选择复制');
+            });
+        }
+        
+        // HTML转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // 点击模态框外部关闭
+        document.getElementById('paper-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'paper-modal') {
+                closePaperModal();
+            }
+        });
+    </script>
+</body>
+</html>

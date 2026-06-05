@@ -17,6 +17,7 @@ from flask import send_from_directory
 from flask_cors import CORS
 
 import processor
+import test_library
 from config import get_config, ensure_defaults, save_config, get_models_dict
 from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR
 from processor import _parse_pending_filename, call_llm_api, generate_explanation, call_tts_api
@@ -266,6 +267,11 @@ def inject_customization():
 def index():
     """主页，返回网页版客户端UI"""
     return render_template('index.html')
+
+@app.route('/library')
+def library_page():
+    """试卷库管理页面"""
+    return render_template('library.html')
 
 @app.route('/upload_image', methods=['POST'])
 @rate_limit
@@ -1211,6 +1217,124 @@ def reload_config():
     except Exception as e:
         logger.error(f"重新加载配置失败: {e}")
         return jsonify({'error': str(e)}), 500
+
+# --- 试卷库管理 API ---
+@app.route('/api/library/status', methods=['GET'])
+@track_request_stats
+def get_library_status():
+    """获取试卷库状态"""
+    try:
+        metadata = test_library.load_library_metadata()
+        return jsonify({
+            'success': True,
+            'total_papers': len(metadata['papers']),
+            'total_questions': metadata['total_questions'],
+            'last_updated': metadata.get('last_updated'),
+            'papers': metadata['papers']
+        })
+    except Exception as e:
+        logger.error(f'获取试卷库状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/upload', methods=['POST'])
+@rate_limit
+@track_request_stats
+def batch_upload_papers():
+    """批量上传试卷"""
+    try:
+        # 检查是否有文件上传
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': '没有上传文件'}), 400
+        
+        files = request.files.getlist('files')
+        paper_name = request.form.get('name', '未命名试卷')
+        grade = request.form.get('grade', '10-12')
+        
+        if not files:
+            return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+        
+        # 读取文件内容
+        image_files = []
+        for file in files:
+            if file.filename == '':
+                continue
+            image_files.append((file.filename, file.read()))
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
+        
+        # 异步或同步处理
+        # 简单起见，同步处理，返回状态
+        result = test_library.batch_analyze_papers(
+            image_files=image_files,
+            grade=grade,
+            paper_name=paper_name,
+            concurrency=int(request.form.get('concurrency', 4))
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f'批量上传试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>', methods=['GET'])
+@track_request_stats
+def get_paper_detail(paper_id):
+    """获取单张试卷的详细分析"""
+    try:
+        analysis = test_library.load_paper_analysis(paper_id)
+        if not analysis:
+            return jsonify({'success': False, 'error': '试卷不存在'}), 404
+        
+        return jsonify({'success': True, 'analysis': analysis})
+    except Exception as e:
+        logger.error(f'获取试卷详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>', methods=['DELETE'])
+@admin_required
+def delete_paper(paper_id):
+    """删除试卷"""
+    try:
+        success = test_library.delete_paper(paper_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '删除失败'}), 500
+    except Exception as e:
+        logger.error(f'删除试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/optimize', methods=['POST'])
+@admin_required
+def generate_optimization_suggestions():
+    """生成提示词优化建议"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        grade = data.get('grade')
+        
+        result = test_library.generate_prompt_optimization_suggestions(
+            paper_ids=paper_ids,
+            grade=grade
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'生成优化建议失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/statistics', methods=['GET'])
+@admin_required
+def get_library_statistics():
+    """获取完整的试卷库统计"""
+    try:
+        stats = test_library.export_library_statistics()
+        return jsonify({'success': True, 'statistics': stats})
+    except Exception as e:
+        logger.error(f'获取统计信息失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
