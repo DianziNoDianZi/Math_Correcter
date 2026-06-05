@@ -138,6 +138,26 @@
             </div>
         </div>
         
+        <!-- 错题本入口 -->
+        <div id="wrong-question-section" class="hidden mb-8">
+            <div class="bg-gradient-to-r from-orange-500 to-red-500 rounded-xl shadow-lg p-6 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="text-2xl font-bold mb-1">📕 我的错题本</h3>
+                        <p class="text-white/80 text-sm">共 <span id="wrong-total">0</span> 道错题，已掌握 <span id="wrong-mastered">0</span> 道</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <button onclick="showWrongQuestions()" class="bg-white text-orange-600 px-4 py-2 rounded-lg font-medium hover:bg-orange-50 transition-colors">
+                            📖 查看错题
+                        </button>
+                        <button onclick="startPractice()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium transition-colors">
+                            ✏️ 开始练习
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <!-- 成绩列表 -->
         <div id="score-list-section" class="hidden mb-8">
             <h3 class="text-xl font-bold text-gray-800 mb-4">📝 历史成绩</h3>
@@ -176,6 +196,113 @@
                     <!-- 题目详情 -->
                     <h3 class="font-bold text-lg mb-4">📋 题目详情</h3>
                     <div id="question-details" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 错题本模态框 -->
+        <div id="wrong-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+            <div class="bg-white rounded-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold">📕 错题本</h2>
+                        <button onclick="closeWrongModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    
+                    <!-- 错题统计 -->
+                    <div class="grid grid-cols-3 gap-4 mb-6">
+                        <div class="bg-red-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-red-600" id="wrong-modal-total">0</div>
+                            <div class="text-sm text-gray-500">总错题数</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="wrong-modal-mastered">0</div>
+                            <div class="text-sm text-gray-500">已掌握</div>
+                        </div>
+                        <div class="bg-orange-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-orange-600" id="wrong-modal-remaining">0</div>
+                            <div class="text-sm text-gray-500">待复习</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 知识点筛选 -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">按知识点筛选</label>
+                        <select id="wrong-knowledge-filter" onchange="filterWrongQuestions()" class="w-full border rounded-lg px-3 py-2">
+                            <option value="">全部知识点</option>
+                        </select>
+                    </div>
+                    
+                    <!-- 错题列表 -->
+                    <div id="wrong-questions-list" class="space-y-4"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 错题详情模态框 -->
+        <div id="wrong-detail-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-[60] flex items-center justify-center">
+            <div class="bg-white rounded-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold">错题详情</h2>
+                        <button onclick="closeWrongDetailModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    
+                    <div id="wrong-detail-content"></div>
+                    
+                    <div class="flex justify-between items-center mt-6 pt-4 border-t">
+                        <button onclick="markAsMastered()" id="btn-mark-mastered" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium">
+                            ✓ 标记为已掌握
+                        </button>
+                        <button onclick="closeWrongDetailModal()" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg font-medium">
+                            关闭
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 练习模式模态框 -->
+        <div id="practice-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+            <div class="bg-white rounded-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-2xl font-bold">✏️ 错题练习</h2>
+                        <button onclick="closePracticeModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    
+                    <!-- 进度 -->
+                    <div class="mb-6">
+                        <div class="flex justify-between text-sm text-gray-600 mb-2">
+                            <span>进度 <span id="practice-progress">0/0</span></span>
+                            <span id="practice-correct-count">答对: 0</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="practice-progress-bar" class="bg-green-500 h-2 rounded-full transition-all" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 题目 -->
+                    <div id="practice-question" class="mb-6"></div>
+                    
+                    <!-- 答案输入 -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">请输入您的答案：</label>
+                        <textarea id="practice-answer-input" rows="3" class="w-full border rounded-lg px-3 py-2" placeholder="输入你的答案..."></textarea>
+                    </div>
+                    
+                    <!-- 操作按钮 -->
+                    <div class="flex gap-3">
+                        <button onclick="submitPracticeAnswer()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-lg font-medium">
+                            提交答案
+                        </button>
+                        <button onclick="skipPracticeQuestion()" class="px-4 py-3 border rounded-lg font-medium hover:bg-gray-50">
+                            跳过
+                        </button>
+                    </div>
+                    
+                    <!-- 答案反馈 -->
+                    <div id="practice-feedback" class="hidden mt-4 p-4 rounded-lg"></div>
                 </div>
             </div>
         </div>
@@ -235,6 +362,7 @@
                     displayScoreList(data.exams);
                     displayScoreChart(data.overview.chart_data);
                     displayKnowledgeSection(data.knowledge_stats);
+                    loadWrongQuestions();
                 } else {
                     alert('未找到该学号的成绩记录');
                 }
@@ -468,6 +596,7 @@
             document.getElementById('score-list-section').classList.add('hidden');
             document.getElementById('score-chart-section').classList.add('hidden');
             document.getElementById('knowledge-section').classList.add('hidden');
+            document.getElementById('wrong-question-section').classList.add('hidden');
             document.getElementById('search-section').classList.remove('hidden');
             document.getElementById('student-id-input').value = '';
         }
@@ -485,6 +614,354 @@
             if (e.target === this) {
                 closeDetailModal();
             }
+        });
+        
+        // 错题本功能
+        let wrongQuestionsData = null;
+        let currentWrongDetail = null;
+        let practiceQuestions = [];
+        let practiceIndex = 0;
+        let practiceCorrectCount = 0;
+        
+        // 加载错题本
+        async function loadWrongQuestions() {
+            if (!currentStudent) return;
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/wrong_questions`);
+                const data = await res.json();
+                
+                if (data.total_wrong > 0) {
+                    wrongQuestionsData = data;
+                    document.getElementById('wrong-total').textContent = data.total_wrong;
+                    document.getElementById('wrong-mastered').textContent = data.total_mastered;
+                    document.getElementById('wrong-question-section').classList.remove('hidden');
+                } else {
+                    document.getElementById('wrong-question-section').classList.add('hidden');
+                }
+            } catch (e) {
+                console.error('加载错题本失败:', e);
+            }
+        }
+        
+        // 显示错题本
+        function showWrongQuestions() {
+            if (!wrongQuestionsData) return;
+            
+            document.getElementById('wrong-modal-total').textContent = wrongQuestionsData.total_wrong;
+            document.getElementById('wrong-modal-mastered').textContent = wrongQuestionsData.total_mastered;
+            document.getElementById('wrong-modal-remaining').textContent = wrongQuestionsData.total_wrong - wrongQuestionsData.total_mastered;
+            
+            // 填充知识点筛选
+            const filterSelect = document.getElementById('wrong-knowledge-filter');
+            filterSelect.innerHTML = '<option value="">全部知识点</option>';
+            Object.keys(wrongQuestionsData.knowledge_groups).forEach(kp => {
+                filterSelect.innerHTML += `<option value="${kp}">${kp}</option>`;
+            });
+            
+            renderWrongQuestionsList(wrongQuestionsData.wrong_questions);
+            document.getElementById('wrong-modal').classList.remove('hidden');
+        }
+        
+        // 渲染错题列表
+        function renderWrongQuestionsList(questions) {
+            const container = document.getElementById('wrong-questions-list');
+            
+            if (!questions || questions.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-8">暂无错题</p>';
+                return;
+            }
+            
+            container.innerHTML = questions.map(wq => `
+                <div class="border rounded-lg p-4 ${wq.is_mastered ? 'border-green-300 bg-green-50' : 'border-red-200 bg-red-50'}">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1 cursor-pointer" onclick="showWrongQuestionDetail('${wq.exam_id}', ${wq.question_number})">
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="font-bold text-lg">第${wq.question_number}题</span>
+                                <span class="px-2 py-0.5 rounded text-xs ${wq.is_mastered ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'}">
+                                    ${wq.is_mastered ? '✓ 已掌握' : '待复习'}
+                                </span>
+                            </div>
+                            <div class="text-sm text-gray-600 mb-2">${wq.exam_name}</div>
+                            <div class="flex flex-wrap gap-2">
+                                ${(wq.knowledge_points || []).map(kp => `<span class="px-2 py-0.5 bg-gray-200 rounded text-xs">${kp}</span>`).join('')}
+                            </div>
+                        </div>
+                        <button onclick="toggleMastered('${wq.exam_id}', ${wq.question_number}, ${!wq.is_mastered})" 
+                                class="ml-4 px-3 py-1 rounded text-sm ${wq.is_mastered ? 'bg-gray-200 hover:bg-gray-300' : 'bg-green-500 hover:bg-green-600 text-white'}">
+                            ${wq.is_mastered ? '取消掌握' : '标记掌握'}
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 筛选错题
+        function filterWrongQuestions() {
+            if (!wrongQuestionsData) return;
+            
+            const filter = document.getElementById('wrong-knowledge-filter').value;
+            
+            if (!filter) {
+                renderWrongQuestionsList(wrongQuestionsData.wrong_questions);
+            } else {
+                const filtered = wrongQuestionsData.wrong_questions.filter(wq => 
+                    (wq.knowledge_points || []).includes(filter)
+                );
+                renderWrongQuestionsList(filtered);
+            }
+        }
+        
+        // 显示错题详情
+        async function showWrongQuestionDetail(examId, questionNumber) {
+            if (!currentStudent) return;
+            
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/wrong_questions/${examId}/${questionNumber}/detail`);
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data) {
+                    currentWrongDetail = data;
+                    displayWrongDetail(data);
+                    document.getElementById('wrong-detail-modal').classList.remove('hidden');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('获取错题详情失败');
+            }
+        }
+        
+        function displayWrongDetail(data) {
+            const question = data.question || {};
+            const studentAnswer = data.student_answer || {};
+            const content = document.getElementById('wrong-detail-content');
+            content.innerHTML = `
+                <div class="space-y-4">
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-sm text-gray-500 mb-1">考试名称</div>
+                        <div class="font-medium">${data.exam_name || ''}</div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-sm text-gray-500 mb-1">题目编号</div>
+                        <div class="font-medium">第${question.number || 0}题</div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <div class="text-sm text-gray-500 mb-1">知识点</div>
+                        <div class="flex flex-wrap gap-2">
+                            ${(question.knowledge_points || []).map(kp => `<span class="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-sm">${kp}</span>`).join('')}
+                        </div>
+                    </div>
+                    
+                    <div class="bg-blue-50 rounded-lg p-4">
+                        <div class="text-sm text-blue-600 mb-1">学生答案</div>
+                        <div class="text-red-700">${studentAnswer.answer || '未作答'}</div>
+                    </div>
+                    
+                    <div class="bg-green-50 rounded-lg p-4">
+                        <div class="text-sm text-green-600 mb-1">正确答案</div>
+                        <div class="text-green-700">${question.correct_answer || '未知'}</div>
+                    </div>
+                    
+                    ${question.analysis ? `
+                    <div class="bg-purple-50 rounded-lg p-4">
+                        <div class="text-sm text-purple-600 mb-1">题目解析</div>
+                        <div class="text-purple-700">${question.analysis}</div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            // 更新按钮状态
+            const btn = document.getElementById('btn-mark-mastered');
+            const isMastered = studentAnswer.is_mastered;
+            if (isMastered) {
+                btn.textContent = '✓ 已掌握';
+                btn.className = 'bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-medium cursor-not-allowed';
+                btn.disabled = true;
+            } else {
+                btn.textContent = '✓ 标记为已掌握';
+                btn.className = 'bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg font-medium';
+                btn.disabled = false;
+            }
+            
+            // 存储当前状态
+            currentWrongDetail = {
+                exam_id: data.exam_id,
+                exam_name: data.exam_name,
+                question_number: question.number,
+                is_mastered: isMastered,
+                question: question,
+                student_answer: studentAnswer
+            };
+        }
+        
+        // 标记已掌握/未掌握
+        async function toggleMastered(examId, questionNumber, mastered) {
+            if (!currentStudent) return;
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/wrong_questions/${examId}/${questionNumber}/mastered`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mastered })
+                });
+                
+                if (res.ok) {
+                    // 重新加载错题本
+                    await loadWrongQuestions();
+                    
+                    // 如果详情模态框打开着，刷新详情
+                    if (currentWrongDetail && currentWrongDetail.exam_id === examId && currentWrongDetail.question_number === questionNumber) {
+                        showWrongQuestionDetail(examId, questionNumber);
+                    }
+                    
+                    // 如果错题列表模态框打开着，刷新列表
+                    if (!document.getElementById('wrong-modal').classList.contains('hidden')) {
+                        showWrongQuestions();
+                    }
+                }
+            } catch (e) {
+                console.error('标记失败:', e);
+            }
+        }
+        
+        // 标记为已掌握（从详情页）
+        function markAsMastered() {
+            if (!currentWrongDetail || currentWrongDetail.is_mastered) return;
+            toggleMastered(currentWrongDetail.exam_id, currentWrongDetail.question_number, true);
+        }
+        
+        // 开始练习
+        async function startPractice() {
+            if (!currentStudent) return;
+            
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/practice?limit=10`);
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data.practice_questions && data.practice_questions.length > 0) {
+                    practiceQuestions = data.practice_questions;
+                    practiceIndex = 0;
+                    practiceCorrectCount = 0;
+                    document.getElementById('practice-modal').classList.remove('hidden');
+                    displayPracticeQuestion();
+                } else {
+                    alert('暂无需要练习的错题');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('加载练习失败');
+            }
+        }
+        
+        function displayPracticeQuestion() {
+            if (practiceIndex >= practiceQuestions.length) {
+                // 练习完成
+                document.getElementById('practice-question').innerHTML = `
+                    <div class="text-center py-8">
+                        <div class="text-6xl mb-4">🎉</div>
+                        <h3 class="text-xl font-bold mb-2">练习完成！</h3>
+                        <p class="text-gray-600">本次练习答对 ${practiceCorrectCount}/${practiceQuestions.length} 题</p>
+                    </div>
+                `;
+                document.getElementById('practice-answer-input').classList.add('hidden');
+                document.querySelector('[onclick="submitPracticeAnswer()"]').classList.add('hidden');
+                document.querySelector('[onclick="skipPracticeQuestion()"]').classList.add('hidden');
+                return;
+            }
+            
+            const q = practiceQuestions[practiceIndex];
+            document.getElementById('practice-answer-input').classList.remove('hidden');
+            document.querySelector('[onclick="submitPracticeAnswer()"]').classList.remove('hidden');
+            document.querySelector('[onclick="skipPracticeQuestion()"]').classList.remove('hidden');
+            document.getElementById('practice-answer-input').value = '';
+            document.getElementById('practice-feedback').classList.add('hidden');
+            
+            document.getElementById('practice-question').innerHTML = `
+                <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold">第${practiceIndex + 1}题</span>
+                        <span class="text-sm text-gray-500">${(q.knowledge_points || []).join(', ')}</span>
+                    </div>
+                    <div class="text-lg">${q.question_content || '题目内容未知'}</div>
+                </div>
+            `;
+            
+            updatePracticeProgress();
+        }
+        
+        function updatePracticeProgress() {
+            document.getElementById('practice-progress').textContent = `${practiceIndex + 1}/${practiceQuestions.length}`;
+            document.getElementById('practice-correct-count').textContent = `答对: ${practiceCorrectCount}`;
+            document.getElementById('practice-progress-bar').style.width = `${((practiceIndex + 1) / practiceQuestions.length) * 100}%`;
+        }
+        
+        function submitPracticeAnswer() {
+            const answer = document.getElementById('practice-answer-input').value.trim();
+            const q = practiceQuestions[practiceIndex];
+            const isCorrect = answer === (q.correct_answer || '').toString().trim();
+            
+            const feedback = document.getElementById('practice-feedback');
+            feedback.classList.remove('hidden');
+            
+            if (isCorrect) {
+                practiceCorrectCount++;
+                feedback.className = 'mt-4 p-4 rounded-lg bg-green-100 border border-green-300';
+                feedback.innerHTML = '<span class="text-green-700 font-medium">✓ 回答正确！</span>';
+            } else {
+                feedback.className = 'mt-4 p-4 rounded-lg bg-red-100 border border-red-300';
+                feedback.innerHTML = `
+                    <span class="text-red-700 font-medium">✗ 回答错误</span>
+                    <div class="mt-2 text-sm">正确答案：<span class="font-medium">${q.correct_answer || '未知'}</span></div>
+                `;
+            }
+            
+            setTimeout(() => {
+                practiceIndex++;
+                displayPracticeQuestion();
+            }, 1500);
+        }
+        
+        function skipPracticeQuestion() {
+            practiceIndex++;
+            displayPracticeQuestion();
+        }
+        
+        function closeWrongModal() {
+            document.getElementById('wrong-modal').classList.add('hidden');
+        }
+        
+        function closeWrongDetailModal() {
+            document.getElementById('wrong-detail-modal').classList.add('hidden');
+            currentWrongDetail = null;
+        }
+        
+        function closePracticeModal() {
+            document.getElementById('practice-modal').classList.add('hidden');
+            loadWrongQuestions(); // 重新加载错题本数据
+        }
+        
+        // 模态框点击外部关闭
+        document.getElementById('wrong-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeWrongModal();
+        });
+        
+        document.getElementById('wrong-detail-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeWrongDetailModal();
+        });
+        
+        document.getElementById('practice-modal').addEventListener('click', function(e) {
+            if (e.target === this) closePracticeModal();
         });
     </script>
 </body>

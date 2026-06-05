@@ -1518,4 +1518,223 @@ def get_student_exam_detail(student_number: str, exam_id: str) -> Optional[Dict[
         'questions': question_details
     }
 
+# ========== 错题本功能 ==========
+
+def get_student_wrong_questions(student_number: str) -> Dict[str, Any]:
+    """
+    获取学生的错题本
+    
+    Args:
+        student_number: 学号
+    
+    Returns:
+        错题列表，按知识点分类
+    """
+    metadata = load_exams_metadata()
+    wrong_questions = []
+    
+    # 遍历所有考试，收集该学生的错题
+    for exam in metadata['exams']:
+        for score in exam.get('scores', []):
+            if score.get('student_number') == student_number:
+                exam_name = exam.get('name', '未知考试')
+                exam_date = exam.get('created_at', '')
+                questions = exam.get('questions', [])
+                results = score.get('results', [])
+                
+                # 收集错题
+                for result in results:
+                    if not result.get('is_correct', True):  # 错题
+                        q_number = result.get('number')
+                        
+                        # 找到对应的题目信息
+                        q_info = None
+                        for q in questions:
+                            if q.get('number') == q_number:
+                                q_info = q
+                                break
+                        
+                        if q_info:
+                            wrong_questions.append({
+                                'exam_id': exam['id'],
+                                'exam_name': exam_name,
+                                'exam_date': exam_date,
+                                'question_number': q_number,
+                                'question_content': q_info.get('content', ''),
+                                'question_type': q_info.get('type', '未知'),
+                                'knowledge_points': q_info.get('knowledge_points', ['基础题']),
+                                'correct_answer': q_info.get('correct_answer', ''),
+                                'student_answer': result.get('student_answer', ''),
+                                'score': result.get('score', 0),
+                                'max_score': q_info.get('score', 5),
+                                'analysis': q_info.get('analysis', ''),
+                                'is_mastered': result.get('is_mastered', False),  # 是否已掌握
+                                'practice_count': result.get('practice_count', 0),  # 练习次数
+                                'last_practice_date': result.get('last_practice_date')
+                            })
+    
+    # 按知识点分类
+    knowledge_groups = defaultdict(list)
+    for wq in wrong_questions:
+        for kp in wq['knowledge_points']:
+            knowledge_groups[kp].append(wq)
+    
+    # 统计知识点掌握情况
+    knowledge_mastery = {}
+    for kp, questions in knowledge_groups.items():
+        total = len(questions)
+        mastered = sum(1 for q in questions if q.get('is_mastered'))
+        knowledge_mastery[kp] = {
+            'total': total,
+            'mastered': mastered,
+            'remaining': total - mastered,
+            'mastery_rate': mastered / total if total > 0 else 0
+        }
+    
+    return {
+        'success': True,
+        'student_number': student_number,
+        'total_wrong': len(wrong_questions),
+        'total_mastered': sum(1 for q in wrong_questions if q.get('is_mastered')),
+        'wrong_questions': wrong_questions,
+        'knowledge_groups': dict(knowledge_groups),
+        'knowledge_mastery': knowledge_mastery
+    }
+
+def mark_question_mastered(student_number: str, exam_id: str, question_number: int, mastered: bool = True) -> Dict[str, Any]:
+    """
+    标记题目已掌握
+    
+    Args:
+        student_number: 学号
+        exam_id: 考试ID
+        question_number: 题目编号
+        mastered: 是否已掌握
+    
+    Returns:
+        操作结果
+    """
+    metadata = load_exams_metadata()
+    
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            for score in exam.get('scores', []):
+                if score.get('student_number') == student_number:
+                    results = score.get('results', [])
+                    for result in results:
+                        if result.get('number') == question_number:
+                            result['is_mastered'] = mastered
+                            result['last_practice_date'] = datetime.now().isoformat()
+                            if mastered:
+                                result['practice_count'] = result.get('practice_count', 0) + 1
+                    
+                    save_exams_metadata(metadata)
+                    return {'success': True, 'message': '标记成功'}
+    
+    return {'success': False, 'error': '未找到该题目'}
+
+def get_practice_questions(student_number: str, knowledge_point: str = None, limit: int = 10) -> Dict[str, Any]:
+    """
+    获取练习题目（从错题中抽取）
+    
+    Args:
+        student_number: 学号
+        knowledge_point: 知识点（可选）
+        limit: 题目数量
+    
+    Returns:
+        待练习的错题列表
+    """
+    wrong_data = get_student_wrong_questions(student_number)
+    
+    if not wrong_data['success']:
+        return wrong_data
+    
+    # 筛选未掌握的错题
+    unpracticed = [q for q in wrong_data['wrong_questions'] if not q.get('is_mastered')]
+    
+    # 如果指定了知识点，过滤
+    if knowledge_point:
+        unpracticed = [q for q in unpracticed if knowledge_point in q['knowledge_points']]
+    
+    # 按练习次数和时间排序（优先练习未练习的）
+    unpracticed.sort(key=lambda x: (x.get('practice_count', 0), x.get('last_practice_date', '')))
+    
+    return {
+        'success': True,
+        'total': len(unpracticed),
+        'practice_questions': unpracticed[:limit],
+        'knowledge_point': knowledge_point
+    }
+
+def get_wrong_question_detail(student_number: str, exam_id: str, question_number: int) -> Optional[Dict[str, Any]]:
+    """
+    获取错题详情
+    
+    Args:
+        student_number: 学号
+        exam_id: 考试ID
+        question_number: 题目编号
+    
+    Returns:
+        错题详情
+    """
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return None
+    
+    # 找到该学生的成绩
+    student_score = None
+    for score in exam.get('scores', []):
+        if score.get('student_number') == student_number:
+            student_score = score
+            break
+    
+    if not student_score:
+        return None
+    
+    # 找到错题
+    questions = exam.get('questions', [])
+    results = student_score.get('results', [])
+    
+    q_info = None
+    q_result = None
+    
+    for q in questions:
+        if q.get('number') == question_number:
+            q_info = q
+            break
+    
+    for result in results:
+        if result.get('number') == question_number:
+            q_result = result
+            break
+    
+    if not q_info or not q_result:
+        return None
+    
+    return {
+        'success': True,
+        'exam_id': exam.get('id', ''),
+        'exam_name': exam.get('name', ''),
+        'exam_date': exam.get('created_at', ''),
+        'question': {
+            'number': q_info.get('number'),
+            'content': q_info.get('content', ''),
+            'type': q_info.get('type', '未知'),
+            'correct_answer': q_info.get('correct_answer', ''),
+            'analysis': q_info.get('analysis', ''),
+            'knowledge_points': q_info.get('knowledge_points', ['基础题']),
+            'max_score': q_info.get('score', 5)
+        },
+        'student_answer': {
+            'answer': q_result.get('student_answer', ''),
+            'is_correct': q_result.get('is_correct', False),
+            'score': q_result.get('score', 0),
+            'is_mastered': q_result.get('is_mastered', False),
+            'practice_count': q_result.get('practice_count', 0)
+        }
+    }
+
+
 

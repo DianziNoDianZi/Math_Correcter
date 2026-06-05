@@ -664,8 +664,8 @@ def unban_ip():
     ip = request.form.get('ip', '').strip()
     with bannedIPs_lock:
         if ip and ip in bannedIPs:
-        bannedIPs.discard(ip)
-        flash(f'已解封 IP: {ip}', 'success')
+            bannedIPs.discard(ip)
+            flash(f'已解封 IP: {ip}', 'success')
     return redirect(url_for('ip_management'))
 
 def _tail_log(n=200):
@@ -2036,6 +2036,55 @@ def get_student_exam_detail(student_number, exam_id):
             return jsonify({'success': False, 'error': '未找到相关记录'}), 404
     except Exception as e:
         logger.error(f'获取考试详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ========== 学生错题本API ==========
+
+@app.route('/api/student/<student_number>/wrong_questions')
+def get_student_wrong_questions_api(student_number):
+    """获取学生的错题本"""
+    try:
+        result = test_library.get_student_wrong_questions(student_number)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'获取错题本失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/student/<student_number>/wrong_questions/<exam_id>/<int:question_number>/mastered', methods=['POST'])
+def mark_question_mastered_api(student_number, exam_id, question_number):
+    """标记题目已掌握/未掌握"""
+    try:
+        data = request.get_json() or {}
+        mastered = data.get('mastered', True)
+        result = test_library.mark_question_mastered(student_number, exam_id, question_number, mastered)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'标记题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/student/<student_number>/practice')
+def get_practice_questions_api(student_number):
+    """获取练习题目"""
+    try:
+        knowledge_point = request.args.get('knowledge_point')
+        limit = request.args.get('limit', 10, type=int)
+        result = test_library.get_practice_questions(student_number, knowledge_point, limit)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'获取练习题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/student/<student_number>/wrong_questions/<exam_id>/<int:question_number>/detail')
+def get_wrong_question_detail_api(student_number, exam_id, question_number):
+    """获取错题详情"""
+    try:
+        result = test_library.get_wrong_question_detail(student_number, exam_id, question_number)
+        if result:
+            return jsonify(result)
+        else:
+            return jsonify({'success': False, 'error': '未找到该错题'}), 404
+    except Exception as e:
+        logger.error(f'获取错题详情失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # ========== 答题卡识别API ==========
