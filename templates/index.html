@@ -208,7 +208,15 @@
     style="background: linear-gradient(135deg, {{ g.customization.bg_color1 }} 0%, {{ g.customization.bg_color2 }} 100%);"
     {% endif %}>
     <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6" style="opacity: {{ (g.customization.opacity / 100) if g.customization and g.customization.opacity else 1 }};">
-        <h1 class="text-3xl font-bold text-center text-blue-600 mb-8">数学作业智能批改助手</h1>
+        <h1 class="text-3xl font-bold text-center text-blue-600 mb-4">数学作业智能批改助手</h1>
+        <!-- 快捷键提示 -->
+        <div class="text-center mb-6">
+            <p class="text-xs text-gray-500">
+                <span class="bg-gray-100 px-2 py-1 rounded mr-1">U</span> - 上传图片 | 
+                <span class="bg-gray-100 px-2 py-1 rounded mr-1">Q</span> - 查询结果 | 
+                <span class="bg-gray-100 px-2 py-1 rounded mr-1">H</span> - 显示/隐藏快捷键
+            </p>
+        </div>
         
         <!-- 模式选择 -->
         <div class="mb-6">
@@ -272,7 +280,20 @@
         
         <div class="mb-6">
             <label class="block text-gray-700 text-sm font-bold mb-2" for="imageInput">选择包含数学题的图片</label>
-            <input type="file" id="imageInput" accept="image/*" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+            <!-- 拖拽上传区域 -->
+            <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer transition-all duration-300 hover:border-blue-500 hover:bg-blue-50">
+                <div class="text-gray-500 mb-4">
+                    <div class="text-4xl mb-2">📷</div>
+                    <p class="font-medium">拖拽图片到这里，或点击选择</p>
+                    <p class="text-xs text-gray-400 mt-1">支持 JPG、PNG、GIF、BMP、WebP 格式</p>
+                </div>
+                <input type="file" id="imageInput" accept="image/*" class="hidden">
+                <!-- 图片预览 -->
+                <div id="imagePreview" class="hidden mt-4">
+                    <img id="previewImg" class="max-w-full mx-auto rounded-lg shadow-md" style="max-height: 300px;">
+                    <button id="clearPreview" class="mt-2 text-red-500 hover:text-red-700 text-sm font-medium">✕ 清除预览</button>
+                </div>
+            </div>
         </div>
         
         <!-- 进度条 -->
@@ -292,9 +313,24 @@
             <label class="block text-gray-700 text-sm font-bold mb-2" for="queryCodeInput">查询码</label>
             <div class="flex">
                 <input type="text" id="queryCodeInput" placeholder="上传后自动生成，或直接输入已有的查询码" class="shadow appearance-none border rounded-l w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
-                <button id="copyCodeBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-r focus:outline-none focus:shadow-outline">复制</button>
+                <button id="copyCodeBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-r focus:outline-none focus:shadow-outline flex items-center gap-1">
+                    <span id="copyIcon">📋</span>
+                    <span id="copyText">复制</span>
+                </button>
             </div>
             <p class="text-xs text-gray-500 mt-1">已有查询码？直接输入后点击"查询结果"即可查看批改。</p>
+        </div>
+        
+        <!-- 历史记录 -->
+        <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+                <label class="block text-gray-700 text-sm font-bold">📜 历史记录</label>
+                <button id="clearHistory" class="text-xs text-red-500 hover:text-red-700">清空历史</button>
+            </div>
+            <div id="historyContainer" class="border rounded-lg p-3 max-h-32 overflow-y-auto bg-gray-50">
+                <p id="emptyHistory" class="text-sm text-gray-500 text-center">暂无历史记录</p>
+                <div id="historyList" class="hidden space-y-2"></div>
+            </div>
         </div>
         <div class="flex items-center justify-between mb-8">
             <button id="queryBtn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">查询结果</button>
@@ -470,6 +506,17 @@
             const audioSection = document.getElementById('audioSection');
             const generateAudioBtn = document.getElementById('generateAudioBtn');
             const audioPlayer = document.getElementById('audioPlayer');
+            // 新元素引用
+            const dropZone = document.getElementById('dropZone');
+            const imagePreview = document.getElementById('imagePreview');
+            const previewImg = document.getElementById('previewImg');
+            const clearPreview = document.getElementById('clearPreview');
+            const historyContainer = document.getElementById('historyContainer');
+            const emptyHistory = document.getElementById('emptyHistory');
+            const historyList = document.getElementById('historyList');
+            const clearHistory = document.getElementById('clearHistory');
+            const copyIcon = document.getElementById('copyIcon');
+            const copyText = document.getElementById('copyText');
             
             let currentQueryCode = '';
             let hasAudio = false;
@@ -477,6 +524,232 @@
             let currentHintStep = 0;
             let totalHintSteps = 4;
             let currentHints = [];
+            
+            // --- 拖拽上传功能 ---
+            let currentFile = null;
+            
+            function handleFileSelect(file) {
+                if (!file.type.startsWith('image/')) {
+                    alert('请选择图片文件！');
+                    return;
+                }
+                currentFile = file;
+                
+                // 显示预览
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    previewImg.src = e.target.result;
+                    imagePreview.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+            
+            dropZone.addEventListener('click', () => imageInput.click());
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('border-blue-500', 'bg-blue-100');
+            });
+            
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500', 'bg-blue-100');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('border-blue-500', 'bg-blue-100');
+                
+                if (e.dataTransfer.files.length) {
+                    handleFileSelect(e.dataTransfer.files[0]);
+                }
+            });
+            
+            imageInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleFileSelect(e.target.files[0]);
+                }
+            });
+            
+            clearPreview.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                currentFile = null;
+                imageInput.value = '';
+                imagePreview.classList.add('hidden');
+            });
+            
+            // --- 历史记录功能 ---
+            const HISTORY_KEY = 'mathGraderHistory';
+            
+            function getHistory() {
+                try {
+                    const saved = localStorage.getItem(HISTORY_KEY);
+                    return saved ? JSON.parse(saved) : [];
+                } catch (e) {
+                    return [];
+                }
+            }
+            
+            function saveHistoryItem(item) {
+                const history = getHistory();
+                // 移除已存在的相同查询码
+                const filtered = history.filter(h => h.queryCode !== item.queryCode);
+                filtered.unshift(item);
+                // 只保留最近20条
+                if (filtered.length > 20) {
+                    filtered.pop();
+                }
+                localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
+                renderHistory();
+            }
+            
+            function renderHistory() {
+                const history = getHistory();
+                if (history.length === 0) {
+                    emptyHistory.classList.remove('hidden');
+                    historyList.classList.add('hidden');
+                    return;
+                }
+                
+                emptyHistory.classList.add('hidden');
+                historyList.classList.remove('hidden');
+                
+                historyList.innerHTML = history.map((item, index) => `
+                    <div class="flex items-center justify-between p-2 hover:bg-gray-100 rounded cursor-pointer transition-colors" data-query="${item.queryCode}">
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-gray-800">${item.mode === 'quick' ? '📝 快速批改' : '🧩 逐步指导'} • ${item.grade}</p>
+                            <p class="text-xs text-gray-500">${new Date(item.timestamp).toLocaleString('zh-CN')}</p>
+                        </div>
+                        <button class="text-gray-400 hover:text-gray-600 delete-history" data-index="${index}" title="删除">
+                            ✕
+                        </button>
+                    </div>
+                `).join('');
+                
+                // 添加点击事件
+                historyList.querySelectorAll('[data-query]').forEach(el => {
+                    el.addEventListener('click', (e) => {
+                        if (e.target.classList.contains('delete-history')) return;
+                        queryCodeInput.value = el.dataset.query;
+                        queryBtn.click();
+                    });
+                });
+                
+                historyList.querySelectorAll('.delete-history').forEach(el => {
+                    el.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const index = parseInt(el.dataset.index);
+                        const history = getHistory();
+                        history.splice(index, 1);
+                        localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+                        renderHistory();
+                    });
+                });
+            }
+            
+            clearHistory.addEventListener('click', () => {
+                if (confirm('确定要清空所有历史记录吗？')) {
+                    localStorage.removeItem(HISTORY_KEY);
+                    renderHistory();
+                }
+            });
+            
+            // 初始化历史记录
+            renderHistory();
+            
+            // --- 改进的复制功能 ---
+            copyCodeBtn.addEventListener('click', async () => {
+                const code = queryCodeInput.value;
+                if (!code) {
+                    alert('请先上传图片获取查询码');
+                    return;
+                }
+                
+                try {
+                    await navigator.clipboard.writeText(code);
+                    // 显示复制成功动画
+                    copyIcon.textContent = '✅';
+                    copyText.textContent = '已复制!';
+                    copyCodeBtn.classList.remove('bg-gray-200', 'hover:bg-gray-300');
+                    copyCodeBtn.classList.add('bg-green-200', 'text-green-800');
+                    
+                    setTimeout(() => {
+                        copyIcon.textContent = '📋';
+                        copyText.textContent = '复制';
+                        copyCodeBtn.classList.add('bg-gray-200', 'hover:bg-gray-300');
+                        copyCodeBtn.classList.remove('bg-green-200', 'text-green-800');
+                    }, 2000);
+                } catch (e) {
+                    // 降级方案
+                    queryCodeInput.select();
+                    document.execCommand('copy');
+                    alert('已复制到剪贴板');
+                }
+            });
+            
+            // --- 快捷键支持 ---
+            document.addEventListener('keydown', (e) => {
+                // 忽略输入框中
+                if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+                
+                switch (e.key.toLowerCase()) {
+                    case 'u':
+                        uploadBtn.click();
+                        break;
+                    case 'q':
+                        queryBtn.click();
+                        break;
+                }
+            });
+            
+            // --- 自动保存模式和年级偏好 ---
+            const PREFS_KEY = 'mathGraderPrefs';
+            
+            function loadPreferences() {
+                try {
+                    const saved = localStorage.getItem(PREFS_KEY);
+                    if (saved) {
+                        const prefs = JSON.parse(saved);
+                        // 恢复模式选择
+                        if (prefs.mode) {
+                            const modeInput = document.querySelector(`input[name="mode"][value="${prefs.mode}"]`);
+                            if (modeInput) modeInput.checked = true;
+                        }
+                        // 恢复年级选择
+                        if (prefs.grade) {
+                            const gradeInput = document.querySelector(`input[name="grade"][value="${prefs.grade}"]`);
+                            if (gradeInput) gradeInput.checked = true;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load preferences:', e);
+                }
+            }
+            
+            function savePreferences() {
+                const modeInput = document.querySelector('input[name="mode"]:checked');
+                const gradeInput = document.querySelector('input[name="grade"]:checked');
+                
+                const prefs = {
+                    mode: modeInput ? modeInput.value : 'quick',
+                    grade: gradeInput ? gradeInput.value : '10-12'
+                };
+                
+                try {
+                    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+                } catch (e) {
+                    console.error('Failed to save preferences:', e);
+                }
+            }
+            
+            // 监听模式和年级的变化
+            document.querySelectorAll('input[name="mode"], input[name="grade"]').forEach(input => {
+                input.addEventListener('change', savePreferences);
+            });
+            
+            // 加载保存的偏好
+            loadPreferences();
             
             // 进度条函数
             function showProgress(label, text, percent) {
@@ -510,7 +783,7 @@
             }
             
             uploadBtn.addEventListener('click', async () => {
-                const file = imageInput.files[0];
+                const file = currentFile || imageInput.files[0];
                 if (!file) { alert('请选择一张图片！'); return; }
                 
                 // 获取当前选择的模式和年级
@@ -519,6 +792,15 @@
                 
                 const gradeInput = document.querySelector('input[name="grade"]:checked');
                 const currentGrade = gradeInput ? gradeInput.value : '10-12';
+                
+                // 年级显示名称
+                const gradeNames = {
+                    '1-2': '小学1-2年级',
+                    '3-4': '小学3-4年级',
+                    '5-6': '小学5-6年级',
+                    '7-9': '初中',
+                    '10-12': '高中'
+                };
                 
                 const reader = new FileReader();
                 reader.onload = async (event) => {
@@ -549,6 +831,14 @@
                         
                         uploadStatus.textContent = `上传成功！查询码: ${queryCode.slice(0, 8)}...`;
                         
+                        // 保存历史记录
+                        saveHistoryItem({
+                            queryCode: queryCode,
+                            mode: currentMode,
+                            grade: gradeNames[currentGrade],
+                            timestamp: new Date().toISOString()
+                        });
+                        
                         // 开始轮询查询状态
                         showProgress('处理中...', '正在生成结果', 60);
                         
@@ -572,10 +862,6 @@
                     }
                 };
                 reader.readAsDataURL(file);
-            });
-            copyCodeBtn.addEventListener('click', () => {
-                if (queryCodeInput.value) { navigator.clipboard.writeText(queryCodeInput.value).then(() => alert('查询码已复制到剪贴板！')).catch(err => { console.error('Failed to copy: ', err); alert('复制失败，请手动复制。'); }); }
-                else { alert('请先上传图片获取查询码。'); }
             });
             
             // 轮询快速批改结果
