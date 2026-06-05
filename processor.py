@@ -58,6 +58,31 @@ SECOND_PROMPT = (
     "学生回答内容："
 )
 
+# 逐步指导的提示词
+GUIDE_HINTS_PROMPT = (
+    "你是一位非常有耐心的数学辅导老师，你不会直接给出答案，而是通过引导让学生自己思考和发现解法。\n\n"
+    "请根据以下题目和学生回答，生成 4 个逐步递进的提示，每个提示都用 Markdown 格式。\n\n"
+    "4个提示的要求如下：\n\n"
+    "1. **第1个提示（最宽泛）**：\n"
+    "   - 不要直接讲解法，只引导学生思考题目考察的知识点是什么\n"
+    "   - 可以问一些引导性的问题\n"
+    "   - 不要给出任何计算过程\n\n"
+    "2. **第2个提示（较具体）**：\n"
+    "   - 给出解题思路的大致方向\n"
+    "   - 说明应该先做什么，再做什么\n"
+    "   - 但还是不要给出具体计算\n\n"
+    "3. **第3个提示（更具体）**：\n"
+    "   - 给出部分关键步骤或公式\n"
+    "   - 引导学生自己完成剩余部分\n\n"
+    "4. **第4个提示（接近答案）**：\n"
+    "   - 给出更详细的步骤提示\n"
+    "   - 但还是不要直接写出完整答案\n\n"
+    "请将这4个提示用 JSON 数组格式返回，格式如下：\n"
+    '["提示1内容", "提示2内容", "提示3内容", "提示4内容"]\n\n'
+    "每个提示的内容都要用友好、鼓励的语气，用 Markdown 格式，适当使用表情符号。\n\n"
+    "题目和学生回答如下：\n"
+)
+
 EXPLANATION_PROMPT = (
     "你是一位耐心且温暖的数学辅导老师。请基于以下批改结果，用口语化、亲切的方式生成一段语音讲解。"
     "要求：\n"
@@ -347,7 +372,66 @@ def generate_explanation(query_code):
     
     return audio_path, explanation_text
 
-def process_task(task_file_path, query_code):
+def generate_guide_hints(query_code, extracted_content):
+    """生成逐步指导的4个提示"""
+    cfg = _load_config()
+    text_model = cfg.get('text_model', '')
+    
+    if not text_model:
+        raise ValueError("未配置文本模型")
+    
+    # 生成4个提示
+    hints_text = call_llm_api(
+        text_model,
+        [{"role": "user", "content": GUIDE_HINTS_PROMPT + extracted_content}]
+    )
+    
+    # 尝试解析 JSON
+    try:
+        # 清理一下响应
+        hints_text = hints_text.strip()
+        if hints_text.startswith('```json'):
+            hints_text = hints_text[7:]
+        if hints_text.startswith('```'):
+            hints_text = hints_text[3:]
+        if hints_text.endswith('```'):
+            hints_text = hints_text[:-3]
+        
+        hints = json.loads(hints_text)
+        
+        # 确保是4个提示
+        if not isinstance(hints, list) or len(hints) != 4:
+            raise ValueError("返回格式不正确")
+        
+        # 保存提示
+        hints_path = os.path.join(RESULTS_DIR, f"{query_code}_hints.json")
+        with open(hints_path, 'w', encoding='utf-8') as f:
+            json.dump(hints, f, ensure_ascii=False)
+        
+        return hints
+    except Exception as e:
+        logger.error(f"解析提示失败: {e}")
+        # 如果解析失败，提供默认提示
+        default_hints = [
+            "💭 让我们先想一想，这道题主要考察什么知识点呢？",
+            "📝 提示一下，我们可以先分析题目给出的条件，再思考需要用到什么公式或定理。",
+            "🔍 再仔细看看，尝试写下第一步的计算过程，你可以的！",
+            "💪 加油！如果还是有困难，可以查看完整解答，然后再自己做一遍哦！"
+        ]
+        hints_path = os.path.join(RESULTS_DIR, f"{query_code}_hints.json")
+        with open(hints_path, 'w', encoding='utf-8') as f:
+            json.dump(default_hints, f, ensure_ascii=False)
+        return default_hints
+
+def get_hints(query_code):
+    """获取已生成的提示"""
+    hints_path = os.path.join(RESULTS_DIR, f"{query_code}_hints.json")
+    if os.path.exists(hints_path):
+        with open(hints_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return None
+
+def process_task(task_file_path, query_code, mode='quick'):
     processing_path = task_file_path
     try:
         # 检查文件是否已在 processing 目录
@@ -368,7 +452,7 @@ def process_task(task_file_path, query_code):
             processing_path = None  # 标记已移动，避免 finally 重复删除
             return
 
-        logger.info(f"开始处理任务 {query_code}")
+        logger.info(f"开始处理任务 {query_code}，模式: {mode}")
 
         # 读取并编码图片
         with open(processing_path, "rb") as img_file:
@@ -381,18 +465,41 @@ def process_task(task_file_path, query_code):
 
         # 第一阶段：视觉模型提取题目/答案
         first_response = call_llm_api(vision_model, [{"role": "user", "content": FIRST_PROMPT}], image_url=image_data_url)
+        
+        # 保存提取的内容，以便后续生成指导提示（如果需要）
+        extracted_path = os.path.join(RESULTS_DIR, f"{query_code}_extracted.txt")
+        with open(extracted_path, 'w', encoding='utf-8') as f:
+            f.write(first_response)
 
-        # 第二阶段：文本模型批改
-        combined_text = SECOND_PROMPT + first_response
-        final_result = call_llm_api(text_model, [{"role": "user", "content": combined_text}])
-
-        # 保存最终结果
-        result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
-        if os.path.exists(cancel_marker):
-            logger.info(f"任务 {query_code} 在完成前被取消，放弃结果写入。")
+        if mode == 'guided':
+            # 逐步指导模式：生成4个提示，同时也生成完整批改（供查看完整解答时使用）
+            try:
+                generate_guide_hints(query_code, first_response)
+            except Exception as e:
+                logger.error(f"生成指导提示失败: {e}")
+            
+            # 同时也生成完整批改结果
+            combined_text = SECOND_PROMPT + first_response
+            final_result = call_llm_api(text_model, [{"role": "user", "content": combined_text}])
+            
+            result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
+            if os.path.exists(cancel_marker):
+                logger.info(f"任务 {query_code} 在完成前被取消，放弃结果写入。")
+            else:
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    f.write(final_result)
         else:
-            with open(result_path, 'w', encoding='utf-8') as f:
-                f.write(final_result)
+            # 快速批改模式
+            combined_text = SECOND_PROMPT + first_response
+            final_result = call_llm_api(text_model, [{"role": "user", "content": combined_text}])
+            
+            # 保存最终结果
+            result_path = os.path.join(RESULTS_DIR, f"{query_code}.txt")
+            if os.path.exists(cancel_marker):
+                logger.info(f"任务 {query_code} 在完成前被取消，放弃结果写入。")
+            else:
+                with open(result_path, 'w', encoding='utf-8') as f:
+                    f.write(final_result)
 
         logger.info(f"任务 {query_code} 处理完成")
 
@@ -430,7 +537,7 @@ def _scan_loop(executor):
             pending_list = []
             for filename in os.listdir(PENDING_DIR):
                 fullpath = os.path.join(PENDING_DIR, filename)
-                if os.path.isfile(fullpath):
+                if os.path.isfile(fullpath) and not filename.endswith('_mode.txt'):
                     try:
                         priority, code = _parse_pending_filename(filename)
                     except Exception:
@@ -445,7 +552,23 @@ def _scan_loop(executor):
                 try:
                     if os.path.exists(fullpath):
                         os.rename(fullpath, processing_path)
-                        executor.submit(process_task, processing_path, code)
+                        
+                        # 读取模式信息
+                        mode = 'quick'
+                        mode_file = os.path.join(PENDING_DIR, f"{code}_mode.txt")
+                        if os.path.exists(mode_file):
+                            try:
+                                with open(mode_file, 'r', encoding='utf-8') as f:
+                                    mode = f.read().strip()
+                                # 移动模式文件到 processing
+                                try:
+                                    os.rename(mode_file, os.path.join(PROCESSING_DIR, f"{code}_mode.txt"))
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        
+                        executor.submit(process_task, processing_path, code, mode)
                 except FileExistsError:
                     pass
                 except FileNotFoundError:

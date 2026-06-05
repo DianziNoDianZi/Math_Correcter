@@ -22,6 +22,9 @@ from processor import _parse_pending_filename, call_llm_api, generate_explanatio
 ipRequests = {}  # {ip: count}
 bannedIPs = set()
 
+# 任务模式存储：{query_code: mode}
+task_modes = {}
+
 # 初始化全局模型字典
 models_dict = get_models_dict()
 
@@ -157,6 +160,19 @@ def upload_image():
             return jsonify({'error': 'Unsupported image format'}), 400
         # 支持可选的优先级，默认 0，越小优先级越高
         priority = int(data.get('priority', 0))
+        # 获取模式，默认 quick
+        mode = data.get('mode', 'quick')
+        if mode not in ['quick', 'guided']:
+            mode = 'quick'
+        
+        # 保存任务模式到文件（这样扫描器也能读取）
+        mode_filepath = os.path.join(PENDING_DIR, f"{query_code}_mode.txt")
+        try:
+            with open(mode_filepath, 'w', encoding='utf-8') as f:
+                f.write(mode)
+        except Exception:
+            pass
+        
         # 文件名形如: 00000001_<query_code>.<ext>
         filename = f"{priority:08d}_{query_code}.{extension}"
         filepath = os.path.join(PENDING_DIR, filename)
@@ -174,7 +190,7 @@ def upload_image():
         with open(filepath, 'wb') as f:
             f.write(decoded)
 
-        logger.info(f"图片已上传，生成查询码: {query_code}")
+        logger.info(f"图片已上传，生成查询码: {query_code}，模式: {mode}")
         return jsonify({'query_code': query_code}), 200
 
     except Exception as e:
@@ -278,10 +294,62 @@ def serve_audio(filename):
     # 防止路径遍历攻击
     if '..' in filename or '/' in filename or '\\' in filename:
         return jsonify({'error': 'Invalid filename'}), 400
-    # 只允许访问wav文件
+    # 只允许访问wav文件和txt文件
     if not filename.endswith('.wav') and not filename.endswith('.txt'):
         return jsonify({'error': 'Invalid file type'}), 400
     return send_from_directory(RESULTS_DIR, filename)
+
+@app.route('/get_hints', methods=['POST'])
+def get_hints():
+    """获取逐步指导的提示"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 检查是否有提示
+        from processor import get_hints as get_hints_from_processor
+        hints = get_hints_from_processor(query_code)
+        
+        if hints is not None:
+            return jsonify({
+                'status': 'ready',
+                'hints': hints
+            })
+        
+        # 检查任务状态
+        # 先看是否在处理中
+        processing_file = None
+        for f in os.listdir(PROCESSING_DIR):
+            if f.startswith(query_code):
+                processing_file = f
+                break
+        
+        if processing_file:
+            return jsonify({'status': 'processing'})
+        
+        # 再看是否在等待中
+        pending_file = None
+        for f in os.listdir(PENDING_DIR):
+            if f.startswith(query_code):
+                pending_file = f
+                break
+        
+        if pending_file:
+            return jsonify({'status': 'pending'})
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"获取提示错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 from flask import render_template
 

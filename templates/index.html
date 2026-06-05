@@ -102,10 +102,44 @@
     {% endif %}>
     <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6" style="opacity: {{ (g.customization.opacity / 100) if g.customization and g.customization.opacity else 1 }};">
         <h1 class="text-3xl font-bold text-center text-blue-600 mb-8">数学作业智能批改助手</h1>
+        
+        <!-- 模式选择 -->
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-3">选择模式</label>
+            <div class="flex gap-4">
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="mode" value="quick" checked class="sr-only peer">
+                    <div class="p-4 border-2 rounded-lg text-center transition-all duration-200 peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:bg-gray-50">
+                        <div class="text-2xl mb-2">📝</div>
+                        <div class="font-semibold text-gray-800">快速批改模式</div>
+                        <div class="text-sm text-gray-500">直接查看完整批改结果</div>
+                    </div>
+                </label>
+                <label class="flex-1 cursor-pointer">
+                    <input type="radio" name="mode" value="guided" class="sr-only peer">
+                    <div class="p-4 border-2 rounded-lg text-center transition-all duration-200 peer-checked:border-blue-500 peer-checked:bg-blue-50 hover:bg-gray-50">
+                        <div class="text-2xl mb-2">🧩</div>
+                        <div class="font-semibold text-gray-800">逐步指导模式</div>
+                        <div class="text-sm text-gray-500">通过提示引导自己思考</div>
+                    </div>
+                </label>
+            </div>
+        </div>
+        
         <div class="mb-6">
             <label class="block text-gray-700 text-sm font-bold mb-2" for="imageInput">选择包含数学题的图片</label>
             <input type="file" id="imageInput" accept="image/*" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
         </div>
+        
+        <!-- 进度条 -->
+        <div id="progressContainer" class="mb-6 hidden">
+            <label class="block text-gray-700 text-sm font-bold mb-2" id="progressLabel">处理中...</label>
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p id="progressText" class="text-xs text-gray-500 mt-1">准备中...</p>
+        </div>
+        
         <div class="flex items-center justify-between mb-8">
             <button id="uploadBtn" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">上传图片</button>
             <div id="uploadStatus" class="text-sm text-gray-500">就绪</div>
@@ -124,9 +158,38 @@
         </div>
         <div class="mt-8">
             <h2 class="text-xl font-semibold text-gray-800 mb-4">批改结果</h2>
-            <div id="resultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px]">
+            
+            <!-- 快速批改模式结果 -->
+            <div id="quickResultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px]">
                 <p class="text-gray-500 italic">结果将在这里显示...</p>
             </div>
+            
+            <!-- 逐步指导模式结果 -->
+            <div id="guidedResultDisplay" class="bg-gray-50 border border-gray-200 rounded-lg p-6 min-h-[300px] hidden">
+                <div class="mb-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">指导进度</h3>
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="flex-1 bg-gray-200 rounded-full h-2.5">
+                            <div id="hintProgressBar" class="bg-green-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <span id="hintProgressText" class="text-sm text-gray-600">步骤 0/4</span>
+                    </div>
+                </div>
+                
+                <div id="hintContent" class="mb-6">
+                    <p class="text-gray-500 italic">等待上传图片...</p>
+                </div>
+                
+                <div id="hintActions" class="flex gap-3 hidden">
+                    <button id="nextHintBtn" class="flex-1 bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                        💡 下一步提示
+                    </button>
+                    <button id="showSolutionBtn" class="flex-1 bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                        📖 查看完整解答
+                    </button>
+                </div>
+            </div>
+            
             <div id="audioSection" class="mt-4 hidden">
                 <button id="generateAudioBtn" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
                     🔊 生成语音讲解
@@ -232,32 +295,114 @@
             const copyCodeBtn = document.getElementById('copyCodeBtn');
             const queryBtn = document.getElementById('queryBtn');
             const queryStatus = document.getElementById('queryStatus');
-            const resultDisplay = document.getElementById('resultDisplay');
+            const quickResultDisplay = document.getElementById('quickResultDisplay');
+            const guidedResultDisplay = document.getElementById('guidedResultDisplay');
+            const hintContent = document.getElementById('hintContent');
+            const hintActions = document.getElementById('hintActions');
+            const nextHintBtn = document.getElementById('nextHintBtn');
+            const showSolutionBtn = document.getElementById('showSolutionBtn');
+            const hintProgressBar = document.getElementById('hintProgressBar');
+            const hintProgressText = document.getElementById('hintProgressText');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressLabel = document.getElementById('progressLabel');
+            const progressText = document.getElementById('progressText');
             const audioSection = document.getElementById('audioSection');
             const generateAudioBtn = document.getElementById('generateAudioBtn');
             const audioPlayer = document.getElementById('audioPlayer');
+            
             let currentQueryCode = '';
             let hasAudio = false;
+            let currentMode = 'quick';
+            let currentHintStep = 0;
+            let totalHintSteps = 4;
+            let currentHints = [];
+            
+            // 进度条函数
+            function showProgress(label, text, percent) {
+                progressContainer.classList.remove('hidden');
+                progressLabel.textContent = label;
+                progressText.textContent = text;
+                progressBar.style.width = `${percent}%`;
+            }
+            
+            function hideProgress() {
+                progressContainer.classList.add('hidden');
+                progressBar.style.width = '0%';
+            }
+            
+            // 更新指导进度条
+            function updateHintProgress(step) {
+                const percent = (step / totalHintSteps) * 100;
+                hintProgressBar.style.width = `${percent}%`;
+                hintProgressText.textContent = `步骤 ${step}/${totalHintSteps}`;
+            }
+            
+            // 切换显示模式
+            function switchDisplayMode(mode) {
+                if (mode === 'quick') {
+                    quickResultDisplay.classList.remove('hidden');
+                    guidedResultDisplay.classList.add('hidden');
+                } else {
+                    quickResultDisplay.classList.add('hidden');
+                    guidedResultDisplay.classList.remove('hidden');
+                }
+            }
+            
             uploadBtn.addEventListener('click', async () => {
                 const file = imageInput.files[0];
                 if (!file) { alert('请选择一张图片！'); return; }
+                
+                // 获取当前选择的模式
+                const modeInput = document.querySelector('input[name="mode"]:checked');
+                currentMode = modeInput ? modeInput.value : 'quick';
+                
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     const base64Image = event.target.result;
                     try {
-                        uploadStatus.textContent = '正在上传...';
+                        showProgress('上传中...', '正在上传图片', 10);
                         uploadBtn.disabled = true;
                         uploadBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                        const response = await fetch(`${SERVER_URL}/upload_image`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_data: base64Image }) });
+                        
+                        const response = await fetch(`${SERVER_URL}/upload_image`, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' }, 
+                            body: JSON.stringify({ 
+                                image_data: base64Image,
+                                mode: currentMode
+                            }) 
+                        });
+                        
                         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        
+                        showProgress('分析中...', 'AI正在分析题目', 40);
+                        
                         const data = await response.json();
                         const queryCode = data.query_code;
                         queryCodeInput.value = queryCode;
+                        currentQueryCode = queryCode;
+                        
                         uploadStatus.textContent = `上传成功！查询码: ${queryCode.slice(0, 8)}...`;
+                        
+                        // 开始轮询查询状态
+                        showProgress('处理中...', '正在生成结果', 60);
+                        
+                        if (currentMode === 'guided') {
+                            switchDisplayMode('guided');
+                            // 对于逐步指导模式，开始获取提示
+                            await pollForGuidedResults(queryCode);
+                        } else {
+                            switchDisplayMode('quick');
+                            // 快速批改模式，继续原有的轮询
+                            await pollForQuickResults(queryCode);
+                        }
+                        
                     } catch (error) {
                         console.error('Upload error:', error);
                         uploadStatus.textContent = `上传失败: ${error.message}`;
                     } finally {
+                        hideProgress();
                         uploadBtn.disabled = false;
                         uploadBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                     }
@@ -268,6 +413,187 @@
                 if (queryCodeInput.value) { navigator.clipboard.writeText(queryCodeInput.value).then(() => alert('查询码已复制到剪贴板！')).catch(err => { console.error('Failed to copy: ', err); alert('复制失败，请手动复制。'); }); }
                 else { alert('请先上传图片获取查询码。'); }
             });
+            
+            // 轮询快速批改结果
+            async function pollForQuickResults(queryCode) {
+                let attempts = 0;
+                const maxAttempts = 30;
+                
+                while (attempts < maxAttempts) {
+                    try {
+                        const response = await fetch(`${SERVER_URL}/query_status`, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' }, 
+                            body: JSON.stringify({ query_code: queryCode }) 
+                        });
+                        
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        
+                        const data = await response.json();
+                        const status = data.status;
+                        
+                        if (status === 'completed') {
+                            showProgress('完成！', '准备显示结果', 100);
+                            queryStatus.textContent = '查询完成';
+                            const renderedHtml = renderMarkdownWithLatex(data.result);
+                            quickResultDisplay.innerHTML = `<div class="result-content">${renderedHtml}</div>`;
+                            hasAudio = data.has_audio === true;
+                            audioSection.classList.remove('hidden');
+                            if (hasAudio) {
+                                audioPlayer.src = `${SERVER_URL}/results/${queryCode}_audio.wav`;
+                                audioPlayer.classList.remove('hidden');
+                                generateAudioBtn.textContent = '🔊 重新生成语音';
+                            } else {
+                                audioPlayer.classList.add('hidden');
+                            }
+                            setTimeout(async () => {
+                                const contentDiv = quickResultDisplay.querySelector('.result-content');
+                                if (contentDiv) await renderLatex(contentDiv);
+                            }, 100);
+                            return;
+                        } else if (status === 'processing') {
+                            const percent = 40 + Math.min(attempts * 2, 50);
+                            showProgress('AI正在分析...', `处理中，请稍候 (${attempts + 1}/${maxAttempts})`, percent);
+                            queryStatus.textContent = 'AI正在分析中，请稍后查询...';
+                            quickResultDisplay.innerHTML = '<p class="text-yellow-600">AI正在分析中，请稍后刷新或再次查询。</p>';
+                        } else if (status === 'pending') {
+                            const percent = 20 + Math.min(attempts, 20);
+                            showProgress('排队中...', `任务排队中 (${attempts + 1}/${maxAttempts})`, percent);
+                            queryStatus.textContent = '任务排队中，请稍后查询...';
+                            quickResultDisplay.innerHTML = '<p class="text-yellow-600">任务排队中，请稍后刷新或再次查询。</p>';
+                        }
+                    } catch (error) {
+                        console.error('Query error:', error);
+                    }
+                    
+                    attempts++;
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                
+                queryStatus.textContent = '查询超时，请稍后重试';
+                quickResultDisplay.innerHTML = '<p class="text-red-600">查询超时，请稍后重试。</p>';
+            }
+            
+            // 轮询逐步指导结果
+            async function pollForGuidedResults(queryCode) {
+                let attempts = 0;
+                const maxAttempts = 30;
+                
+                while (attempts < maxAttempts) {
+                    try {
+                        const response = await fetch(`${SERVER_URL}/get_hints`, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' }, 
+                            body: JSON.stringify({ query_code: queryCode }) 
+                        });
+                        
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        
+                        const data = await response.json();
+                        
+                        if (data.status === 'ready') {
+                            showProgress('准备好啦！', '正在加载指导', 100);
+                            currentHints = data.hints || [];
+                            totalHintSteps = currentHints.length;
+                            displayFirstHint();
+                            return;
+                        } else if (data.status === 'processing') {
+                            const percent = 40 + Math.min(attempts * 2, 50);
+                            showProgress('AI正在分析...', `准备指导中 (${attempts + 1}/${maxAttempts})`, percent);
+                            hintContent.innerHTML = '<p class="text-yellow-600">AI正在准备中，请稍候...</p>';
+                        } else if (data.status === 'pending') {
+                            const percent = 20 + Math.min(attempts, 20);
+                            showProgress('排队中...', `任务排队中 (${attempts + 1}/${maxAttempts})`, percent);
+                            hintContent.innerHTML = '<p class="text-yellow-600">请稍候，正在准备中...</p>';
+                        }
+                    } catch (error) {
+                        console.error('Hint query error:', error);
+                    }
+                    
+                    attempts++;
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                
+                hintContent.innerHTML = '<p class="text-red-600">加载超时，请稍后重试。</p>';
+            }
+            
+            // 显示第一个提示
+            function displayFirstHint() {
+                currentHintStep = 1;
+                updateHintProgress(1);
+                renderHint(currentHints[0]);
+                hintActions.classList.remove('hidden');
+                checkHintButtons();
+            }
+            
+            // 渲染单个提示
+            function renderHint(hint) {
+                const renderedHtml = renderMarkdownWithLatex(hint);
+                hintContent.innerHTML = `<div class="result-content">${renderedHtml}</div>`;
+                setTimeout(async () => {
+                    const contentDiv = hintContent.querySelector('.result-content');
+                    if (contentDiv) await renderLatex(contentDiv);
+                }, 100);
+            }
+            
+            // 检查按钮状态
+            function checkHintButtons() {
+                if (currentHintStep >= totalHintSteps) {
+                    nextHintBtn.disabled = true;
+                    nextHintBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                    nextHintBtn.textContent = '✅ 已显示所有提示';
+                } else {
+                    nextHintBtn.disabled = false;
+                    nextHintBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    nextHintBtn.textContent = '💡 下一步提示';
+                }
+            }
+            
+            // 下一步提示按钮
+            nextHintBtn.addEventListener('click', () => {
+                if (currentHintStep < totalHintSteps) {
+                    currentHintStep++;
+                    updateHintProgress(currentHintStep);
+                    renderHint(currentHints[currentHintStep - 1]);
+                    checkHintButtons();
+                }
+            });
+            
+            // 查看完整解答按钮
+            showSolutionBtn.addEventListener('click', async () => {
+                if (confirm('确定要查看完整解答吗？最好先自己尝试一下哦！')) {
+                    try {
+                        const response = await fetch(`${SERVER_URL}/query_status`, { 
+                            method: 'POST', 
+                            headers: { 'Content-Type': 'application/json' }, 
+                            body: JSON.stringify({ query_code: currentQueryCode }) 
+                        });
+                        
+                        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                        
+                        const data = await response.json();
+                        if (data.status === 'completed') {
+                            switchDisplayMode('quick');
+                            const renderedHtml = renderMarkdownWithLatex(data.result);
+                            quickResultDisplay.innerHTML = `<div class="result-content">${renderedHtml}</div>`;
+                            hasAudio = data.has_audio === true;
+                            audioSection.classList.remove('hidden');
+                            if (hasAudio) {
+                                audioPlayer.src = `${SERVER_URL}/results/${currentQueryCode}_audio.wav`;
+                                audioPlayer.classList.remove('hidden');
+                            }
+                            setTimeout(async () => {
+                                const contentDiv = quickResultDisplay.querySelector('.result-content');
+                                if (contentDiv) await renderLatex(contentDiv);
+                            }, 100);
+                        }
+                    } catch (error) {
+                        console.error('Get solution error:', error);
+                        alert('获取解答失败，请稍后重试。');
+                    }
+                }
+            });
+            
             queryBtn.addEventListener('click', async () => {
                 const currentTime = new Date().getTime();
                 if (currentTime - lastRequestTime < BUTTON_COOLDOWN) {
@@ -291,7 +617,7 @@
                         queryStatus.textContent = '查询完成';
                         // 使用 Markdown 渲染
                         const renderedHtml = renderMarkdownWithLatex(result);
-                        resultDisplay.innerHTML = `<div class="result-content">${renderedHtml}</div>`;
+                        quickResultDisplay.innerHTML = `<div class="result-content">${renderedHtml}</div>`;
                         currentQueryCode = queryCode;
                         hasAudio = data.has_audio === true;
                         audioSection.classList.remove('hidden');
@@ -303,23 +629,27 @@
                             audioPlayer.classList.add('hidden');
                         }
                         setTimeout(async () => {
-                            const contentDiv = resultDisplay.querySelector('.result-content');
+                            const contentDiv = quickResultDisplay.querySelector('.result-content');
                             if (contentDiv) await renderLatex(contentDiv);
                         }, 100);
+                        
+                        // 默认使用快速批改模式显示
+                        currentMode = 'quick';
+                        switchDisplayMode('quick');
                     } else if (status === 'processing') {
                         queryStatus.textContent = 'AI正在分析中，请稍后查询...';
-                        resultDisplay.innerHTML = '<p class="text-yellow-600">AI正在分析中，请稍后刷新或再次查询。</p>';
+                        quickResultDisplay.innerHTML = '<p class="text-yellow-600">AI正在分析中，请稍后刷新或再次查询。</p>';
                     } else if (status === 'pending') {
                         queryStatus.textContent = '任务排队中，请稍后查询...';
-                        resultDisplay.innerHTML = '<p class="text-yellow-600">任务排队中，请稍后刷新或再次查询。</p>';
+                        quickResultDisplay.innerHTML = '<p class="text-yellow-600">任务排队中，请稍后刷新或再次查询。</p>';
                     } else {
                         queryStatus.textContent = '未知状态';
-                        resultDisplay.innerHTML = `<p class="text-red-500">服务器返回未知状态: ${status}</p>`;
+                        quickResultDisplay.innerHTML = `<p class="text-red-500">服务器返回未知状态: ${status}</p>`;
                     }
                 } catch (error) {
                     console.error('Query error:', error);
                     queryStatus.textContent = `查询失败: ${error.message}`;
-                    resultDisplay.innerHTML = `<p class="text-red-500">查询失败: ${error.message}</p>`;
+                    quickResultDisplay.innerHTML = `<p class="text-red-600">查询失败: ${error.message}</p>`;
                 } finally {
                     queryBtn.disabled = false;
                     queryBtn.classList.remove('opacity-50', 'cursor-not-allowed');
