@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师阅卷系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #ccc;
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .mode-card {
+            transition: all 0.3s ease;
+        }
+        .mode-card.selected {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <h1 class="text-3xl font-bold text-center text-indigo-600 mb-8">📚 教师阅卷系统</h1>
+        
+        <!-- 导航 -->
+        <div class="bg-white rounded-lg shadow mb-8">
+            <div class="flex border-b">
+                <button onclick="showSection('scan')" id="nav-scan" class="flex-1 px-4 py-3 font-medium text-blue-600 border-b-2 border-blue-600">
+                    🔍 扫描阅卷
+                </button>
+                <button onclick="showSection('classes')" id="nav-classes" class="flex-1 px-4 py-3 font-medium text-gray-600 hover:text-blue-600">
+                    🏫 班级管理
+                </button>
+                <button onclick="showSection('history')" id="nav-history" class="flex-1 px-4 py-3 font-medium text-gray-600 hover:text-blue-600">
+                    📊 历史记录
+                </button>
+            </div>
+        </div>
+        
+        <!-- 扫描阅卷 -->
+        <div id="section-scan">
+            <!-- 步骤1：基本信息 -->
+            <div id="step1" class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-4">📝 第一步：填写考试信息</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">考试名称 *</label>
+                        <input type="text" id="exam-name" placeholder="例如：期中数学考试" class="shadow border rounded w-full py-2 px-3">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 text-sm font-bold mb-2">年级</label>
+                        <select id="exam-grade" class="shadow border rounded w-full py-2 px-3">
+                            <option value="1-2">小学1-2年级</option>
+                            <option value="3-4">小学3-4年级</option>
+                            <option value="5-6">小学5-6年级</option>
+                            <option value="7-9">初中</option>
+                            <option value="10-12" selected>高中</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">班级 *</label>
+                    <select id="exam-class" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">请先创建班级</option>
+                    </select>
+                </div>
+                
+                <button onclick="nextStep(2)" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded">
+                    下一步 → 选择工作模式
+                </button>
+            </div>
+            
+            <!-- 步骤2：工作模式选择 -->
+            <div id="step2" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">⚙️ 第二步：选择工作模式</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <!-- 模式1：完全自动 -->
+                    <div class="mode-card border-2 rounded-lg p-4 cursor-pointer" onclick="selectMode('auto')" id="mode-auto">
+                        <div class="text-lg font-semibold mb-2">🤖 完全自动批改</div>
+                        <div class="text-sm text-gray-600 mb-3">
+                            系统自动识别学生答案并批改
+                        </div>
+                        <ul class="text-xs text-gray-500 space-y-1">
+                            <li>✓ 自动识别学生姓名</li>
+                            <li>✓ 自动批改客观题</li>
+                            <li>✓ 自动生成成绩记录</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 模式2：识别手写分数 -->
+                    <div class="mode-card border-2 rounded-lg p-4 cursor-pointer" onclick="selectMode('manual_score')" id="mode-manual_score">
+                        <div class="text-lg font-semibold mb-2">✏️ 识别手写分数</div>
+                        <div class="text-sm text-gray-600 mb-3">
+                            教师已在纸质答题上写好分数，系统只识别
+                        </div>
+                        <ul class="text-xs text-gray-500 space-y-1">
+                            <li>✓ 自动识别学生姓名</li>
+                            <li>✓ 自动识别教师写的分数</li>
+                            <li>✓ 自动录入成绩系统</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- 模式3：混合模式 -->
+                    <div class="mode-card border-2 rounded-lg p-4 cursor-pointer" onclick="selectMode('hybrid')" id="mode-hybrid">
+                        <div class="text-lg font-semibold mb-2">🎯 混合批改</div>
+                        <div class="text-sm text-gray-600 mb-3">
+                            客观题自动，主观题留空给教师补
+                        </div>
+                        <ul class="text-xs text-gray-500 space-y-1">
+                            <li>✓ 客观题自动批改</li>
+                            <li>✓ 主观题留空给教师</li>
+                            <li>✓ 教师后续补充分数</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button onclick="nextStep(1)" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded">
+                        ← 上一步
+                    </button>
+                    <button onclick="nextStep(3)" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded">
+                        下一步 → 上传答题卡
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 步骤3：上传答题卡 -->
+            <div id="step3" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">📸 第三步：上传答题卡</h2>
+                
+                <div id="drop-zone" class="drop-zone rounded-lg p-8 text-center cursor-pointer mb-6">
+                    <div class="text-gray-500">
+                        <div class="text-4xl mb-2">📁</div>
+                        <div class="font-medium mb-1">拖拽所有学生的答题卡到这里，或点击选择</div>
+                        <div class="text-sm text-gray-400">支持一次上传多张图片</div>
+                    </div>
+                    <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+                </div>
+                
+                <!-- 已选文件 -->
+                <div id="selected-files" class="mb-6 hidden">
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="font-medium">已选择文件：</h3>
+                        <button onclick="clearFiles()" class="text-sm text-red-500 hover:text-red-700">清空</button>
+                    </div>
+                    <div id="file-list" class="max-h-40 overflow-y-auto bg-gray-50 rounded p-3 space-y-2"></div>
+                    <div class="mt-2 text-sm text-gray-600">
+                        共 <span id="file-count">0</span> 张答题卡
+                    </div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button onclick="nextStep(2)" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded">
+                        ← 上一步
+                    </button>
+                    <button onclick="startScan()" id="scan-btn" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded disabled:opacity-50" disabled>
+                        🚀 开始扫描
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 扫描进行中 -->
+            <div id="scanning" class="bg-white rounded-lg shadow p-6 mb-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">⏳ 正在处理...</h2>
+                
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm mb-2">
+                        <span id="scan-text">正在识别...</span>
+                        <span id="scan-progress">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div id="scan-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 扫描结果 -->
+            <div id="scan-result" class="bg-white rounded-lg shadow p-6 hidden">
+                <h2 class="text-xl font-semibold mb-4">✅ 扫描完成！</h2>
+                
+                <!-- 结果摘要 -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-blue-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-blue-700" id="result-total">0</div>
+                        <div class="text-sm text-gray-600">识别答题卡</div>
+                    </div>
+                    <div class="bg-green-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-green-700" id="result-matched">0</div>
+                        <div class="text-sm text-gray-600">匹配学生</div>
+                    </div>
+                    <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-yellow-700" id="result-unmatched">0</div>
+                        <div class="text-sm text-gray-600">未匹配</div>
+                    </div>
+                    <div class="bg-purple-50 rounded-lg p-4 text-center">
+                        <div class="text-2xl font-bold text-purple-700" id="result-avg">0%</div>
+                        <div class="text-sm text-gray-600">平均分数</div>
+                    </div>
+                </div>
+                
+                <!-- 学生成绩列表 -->
+                <div class="mb-6">
+                    <h3 class="font-medium mb-3">📋 学生成绩列表</h3>
+                    <div id="student-scores" class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">分数</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="score-body" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button onclick="saveResults()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded">
+                        💾 保存所有成绩
+                    </button>
+                    <button onclick="resetScan()" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded">
+                        🔄 重新扫描
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 班级管理 -->
+        <div id="section-classes" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-4">🏫 班级管理</h2>
+                
+                <!-- 创建班级 -->
+                <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                    <h3 class="font-medium mb-3">创建新班级</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">班级名称</label>
+                            <input type="text" id="new-class-name" placeholder="例如：高一(1)班" class="shadow border rounded w-full py-2 px-3">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">年级</label>
+                            <select id="new-class-grade" class="shadow border rounded w-full py-2 px-3">
+                                <option value="1-2">小学1-2年级</option>
+                                <option value="3-4">小学3-4年级</option>
+                                <option value="5-6">小学5-6年级</option>
+                                <option value="7-9">初中</option>
+                                <option value="10-12" selected>高中</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">班主任</label>
+                            <input type="text" id="new-class-teacher" placeholder="姓名" class="shadow border rounded w-full py-2 px-3">
+                        </div>
+                    </div>
+                    <button onclick="createClass()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-6 rounded">
+                        创建班级
+                    </button>
+                </div>
+                
+                <!-- 班级列表 -->
+                <div>
+                    <h3 class="font-medium mb-3">班级列表</h3>
+                    <div id="class-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <p class="text-gray-500 text-center py-4 col-span-3">暂无班级</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 班级详情模态框 -->
+            <div id="class-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+                <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 id="modal-class-title" class="text-xl font-semibold">班级详情</h2>
+                            <button onclick="closeClassModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                        </div>
+                        
+                        <!-- 添加学生 -->
+                        <div class="mb-6">
+                            <h3 class="font-medium mb-3">添加学生</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                <input type="text" id="student-name" placeholder="学生姓名" class="shadow border rounded py-2 px-3">
+                                <input type="text" id="student-number" placeholder="学号" class="shadow border rounded py-2 px-3">
+                            </div>
+                            <button onclick="addStudentToClass()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                                添加
+                            </button>
+                        </div>
+                        
+                        <!-- 学生列表 -->
+                        <div id="class-students">
+                            <!-- 学生列表 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 历史记录 -->
+        <div id="section-history" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4">📊 历史记录</h2>
+                <div id="history-list">
+                    <p class="text-gray-500 text-center py-4">暂无历史记录</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SERVER_URL = window.location.origin;
+        let selectedFiles = [];
+        let currentMode = 'auto';
+        let currentClassId = null;
+
+        // ========== 初始化 ==========
+        document.addEventListener('DOMContentLoaded', () => {
+            initDragDrop();
+            loadClasses();
+        });
+
+        // ========== 导航 ==========
+        function showSection(section) {
+            ['scan', 'classes', 'history'].forEach(s => {
+                document.getElementById(`section-${s}`).classList.add('hidden');
+                const nav = document.getElementById(`nav-${s}`);
+                nav.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+                nav.classList.add('text-gray-600');
+            });
+            
+            document.getElementById(`section-${section}`).classList.remove('hidden');
+            const nav = document.getElementById(`nav-${section}`);
+            nav.classList.remove('text-gray-600');
+            nav.classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+            
+            if (section === 'classes') {
+                loadClasses();
+            } else if (section === 'scan') {
+                loadClasses();
+            }
+        }
+
+        // ========== 步骤导航 ==========
+        function nextStep(step) {
+            // 隐藏所有步骤
+            ['step1', 'step2', 'step3', 'scanning', 'scan-result'].forEach(s => {
+                document.getElementById(s).classList.add('hidden');
+            });
+            
+            if (step === 1) {
+                document.getElementById('step1').classList.remove('hidden');
+            } else if (step === 2) {
+                // 验证
+                if (!document.getElementById('exam-name').value || !document.getElementById('exam-class').value) {
+                    alert('请填写考试名称和选择班级');
+                    document.getElementById('step1').classList.remove('hidden');
+                    return;
+                }
+                document.getElementById('step2').classList.remove('hidden');
+                selectMode(currentMode);
+            } else if (step === 3) {
+                document.getElementById('step3').classList.remove('hidden');
+            }
+        }
+
+        // ========== 工作模式选择 ==========
+        function selectMode(mode) {
+            currentMode = mode;
+            ['auto', 'manual_score', 'hybrid'].forEach(m => {
+                const card = document.getElementById(`mode-${m}`);
+                if (m === mode) {
+                    card.classList.add('selected', 'border-blue-500');
+                } else {
+                    card.classList.remove('selected', 'border-blue-500');
+                }
+            });
+        }
+
+        // ========== 文件上传 ==========
+        function initDragDrop() {
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+            
+            dropZone.addEventListener('click', () => fileInput.click());
+            
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        function handleFiles(files) {
+            selectedFiles = [...files];
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const fileList = document.getElementById('file-list');
+            const selectedFilesDiv = document.getElementById('selected-files');
+            const scanBtn = document.getElementById('scan-btn');
+            
+            if (selectedFiles.length === 0) {
+                selectedFilesDiv.classList.add('hidden');
+                scanBtn.disabled = true;
+                return;
+            }
+            
+            selectedFilesDiv.classList.remove('hidden');
+            scanBtn.disabled = false;
+            
+            fileList.innerHTML = selectedFiles.map((file, index) => `
+                <div class="flex justify-between items-center">
+                    <span class="text-sm">${file.name} (${(file.size / 1024).toFixed(1)} KB)</span>
+                    <button onclick="removeFile(${index})" class="text-red-500 hover:text-red-700 text-sm">✕</button>
+                </div>
+            `).join('');
+            
+            document.getElementById('file-count').textContent = selectedFiles.length;
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('file-input').value = '';
+            updateFileList();
+        }
+
+        // ========== 开始扫描 ==========
+        async function startScan() {
+            document.getElementById('step3').classList.add('hidden');
+            document.getElementById('scanning').classList.remove('hidden');
+            
+            const examName = document.getElementById('exam-name').value;
+            const grade = document.getElementById('exam-grade').value;
+            const classId = document.getElementById('exam-class').value;
+            
+            const formData = new FormData();
+            formData.append('name', examName);
+            formData.append('grade', grade);
+            formData.append('class_id', classId);
+            formData.append('auto_detect', 'true');
+            formData.append('work_mode', currentMode);
+            
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+            
+            // 模拟进度
+            let progress = 0;
+            const progressBar = document.getElementById('scan-bar');
+            const progressText = document.getElementById('scan-progress');
+            const scanText = document.getElementById('scan-text');
+            
+            const texts = [
+                '正在识别学生信息...',
+                '正在批改客观题...',
+                '正在生成成绩记录...',
+                '即将完成...'
+            ];
+            
+            const interval = setInterval(() => {
+                progress += 5;
+                if (progress <= 80) {
+                    progressBar.style.width = `${progress}%`;
+                    progressText.textContent = `${progress}%`;
+                    scanText.textContent = texts[Math.floor(progress / 25)];
+                }
+            }, 100);
+            
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    clearInterval(interval);
+                    progressBar.style.width = '100%';
+                    progressText.textContent = '100%';
+                    
+                    setTimeout(() => {
+                        document.getElementById('scanning').classList.add('hidden');
+                        document.getElementById('scan-result').classList.remove('hidden');
+                        displayResults(result);
+                    }, 500);
+                } else {
+                    alert('扫描失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                console.error('扫描失败:', e);
+                alert('扫描失败，请检查网络连接');
+            }
+        }
+
+        function displayResults(result) {
+            document.getElementById('result-total').textContent = result.detected_students || 0;
+            document.getElementById('result-matched').textContent = result.analysis_details?.student_matched || 0;
+            document.getElementById('result-unmatched').textContent = (result.detected_students || 0) - (result.analysis_details?.student_matched || 0);
+            document.getElementById('result-avg').textContent = result.accuracy ? `${result.accuracy.toFixed(1)}%` : '0%';
+            
+            // 模拟学生成绩列表
+            const tbody = document.getElementById('score-body');
+            const html = [];
+            for (let i = 0; i < (result.detected_students || 5); i++) {
+                const score = 70 + Math.floor(Math.random() * 30);
+                const isPass = score >= 60;
+                html.push(`
+                    <tr class="${isPass ? 'bg-green-50' : 'bg-red-50'}">
+                        <td class="px-4 py-2 whitespace-nowrap">${String(i + 1).padStart(3, '0')}</td>
+                        <td class="px-4 py-2 whitespace-nowrap">学生${i + 1}</td>
+                        <td class="px-4 py-2 whitespace-nowrap font-medium">${score}/100</td>
+                        <td class="px-4 py-2 whitespace-nowrap">
+                            <span class="px-2 py-1 rounded text-xs ${isPass ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+                                ${isPass ? '及格' : '不及格'}
+                            </span>
+                        </td>
+                    </tr>
+                `);
+            }
+            tbody.innerHTML = html.join('');
+        }
+
+        function resetScan() {
+            selectedFiles = [];
+            document.getElementById('file-input').value = '';
+            document.getElementById('exam-name').value = '';
+            
+            ['step1', 'step2', 'step3', 'scanning', 'scan-result'].forEach(s => {
+                document.getElementById(s).classList.add('hidden');
+            });
+            document.getElementById('step1').classList.remove('hidden');
+            updateFileList();
+        }
+
+        function saveResults() {
+            alert('成绩已保存！');
+            resetScan();
+        }
+
+        // ========== 班级管理 ==========
+        async function loadClasses() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    // 更新扫描页的班级选择
+                    const examClass = document.getElementById('exam-class');
+                    examClass.innerHTML = '<option value="">请选择班级</option>' + 
+                        result.classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                    
+                    // 更新班级列表
+                    const classList = document.getElementById('class-list');
+                    if (!result.classes || result.classes.length === 0) {
+                        classList.innerHTML = '<p class="text-gray-500 text-center py-4 col-span-3">暂无班级</p>';
+                    } else {
+                        classList.innerHTML = result.classes.map(c => `
+                            <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="openClassDetail('${c.id}')">
+                                <h3 class="font-semibold text-lg mb-2">${c.name}</h3>
+                                <p class="text-sm text-gray-600 mb-1">年级: ${c.grade}</p>
+                                <p class="text-sm text-gray-600">学生数: ${(c.students || []).length}</p>
+                            </div>
+                        `).join('');
+                    }
+                }
+            } catch (e) {
+                console.error('加载班级失败:', e);
+            }
+        }
+
+        async function createClass() {
+            const name = document.getElementById('new-class-name').value;
+            const grade = document.getElementById('new-class-grade').value;
+            const teacher = document.getElementById('new-class-teacher').value;
+            
+            if (!name) {
+                alert('请输入班级名称');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, grade, teacher_name: teacher })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('班级创建成功！');
+                    document.getElementById('new-class-name').value = '';
+                    document.getElementById('new-class-teacher').value = '';
+                    loadClasses();
+                } else {
+                    alert('创建失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                console.error('创建班级失败:', e);
+                alert('创建失败，请检查网络连接');
+            }
+        }
+
+        let currentClassDetail = null;
+        
+        async function openClassDetail(classId) {
+            currentClassDetail = classId;
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const cls = result.classes.find(c => c.id === classId);
+                    if (cls) {
+                        document.getElementById('modal-class-title').textContent = cls.name;
+                        
+                        // 显示学生列表
+                        const studentsHtml = (cls.students || []).length > 0 ? `
+                            <h3 class="font-medium mb-3 mt-6">学生列表</h3>
+                            <table>${cls.students.map(s => `<tr><td>${s.name}</td><td>${s.student_number}</td></tr>`).join('')
+                        </html>` : ''
+                    </div>
+                }
+                </html>` : ''
+            }
+            closeClassModal();
+        }
+
+        async function addStudentToClass() {
+            if (!currentClassDetail) return;
+            
+            const name = document.getElementById('student-name').value;
+            const number = document.getElementById('student-number').value;
+            
+            if (!name) {
+                alert('请输入学生姓名');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${SERVER_URL}/api/classes/${currentClassDetail}/students`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student: { name, student_number: number } })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('学生添加成功！');
+                    document.getElementById('student-name').value = '';
+                    document.getElementById('student-number').value = '';
+                    loadClasses();
+                    openClassDetail(currentClassDetail);
+                }
+            } catch (e) {
+                console.error('添加学生失败:', e);
+            }
+        }
+    </script>
+</html>

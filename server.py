@@ -6,26 +6,125 @@ import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
+from collections import deque
+import json
 
 import requests
 from flask import Flask, jsonify, request, render_template, flash, redirect, url_for, Response, session, g
 from flask import send_from_directory
+from flask_cors import CORS
 
 import processor
-from config import get_config, ensure_defaults, save_config, get_models_dict
+import test_library
+from config import get_config, ensure_defaults, save_config, get_models_dict, get_cross_platform_path, validate_batch_upload, validate_file_upload
+from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR
 from processor import _parse_pending_filename, call_llm_api, generate_explanation, call_tts_api
+
+# 线程锁，用于保护全局状态的并发访问
+import threading
 
 # IP封禁列表和请求统计
 ipRequests = {}  # {ip: count}
+ipRequests_lock = threading.Lock()  # 保护ipRequests
 bannedIPs = set()
+bannedIPs_lock = threading.Lock()  # 保护bannedIPs
+
+# 速率限制器
+rateLimitStore = {}  # {ip: deque(timestamps)}
+rateLimitStore_lock = threading.Lock()  # 保护rateLimitStore
+
+# 统计数据
+stats = {
+    'total_requests': 0,
+    'total_uploads': 0,
+    'total_tasks_processed': 0,
+    'total_audio_generated': 0,
+    'start_time': datetime.now().isoformat(),
+    'failed_requests': 0,
+    'processing_times': []
+}
+stats_lock = threading.Lock()  # 保护stats
+
+# 任务模式存储：{query_code: mode}
+task_modes = {}
+task_modes_lock = threading.Lock()  # 保护task_modes
 
 # 初始化全局模型字典
 models_dict = get_models_dict()
 
 ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
 ADMIN_PASS = os.environ.get('ADMIN_PASS', 'changeme')
+SECRET_KEY = os.environ.get('SECRET_KEY', None)
+
+# 配置
+CORS_ENABLED = os.environ.get('CORS_ENABLED', 'false').lower() == 'true'
+RATE_LIMIT_ENABLED = os.environ.get('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+RATE_LIMIT_WINDOW = int(os.environ.get('RATE_LIMIT_WINDOW', '60'))  # 秒
+RATE_LIMIT_MAX = int(os.environ.get('RATE_LIMIT_MAX', '30'))  # 每个窗口最大请求数
+TASK_RETENTION_DAYS = int(os.environ.get('TASK_RETENTION_DAYS', '7'))  # 任务保留天数
+
+# 警告用户修改默认密码
+if ADMIN_USER == 'admin' or ADMIN_PASS == 'changeme':
+    print('WARNING: Using default admin credentials! Please set ADMIN_USER and ADMIN_PASS environment variables!')
+if SECRET_KEY is None:
+    print('WARNING: Using default secret key! Please set SECRET_KEY environment variable!')
+    SECRET_KEY = 'dev-secret-key-change-in-production'
+
+# 装饰器：统计请求
+def track_request_stats(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        global stats
+        start_time = time.time()
+        try:
+            result = f(*args, **kwargs)
+            with stats_lock:
+                stats['total_requests'] += 1
+            return result
+        except Exception as e:
+            with stats_lock:
+                stats['failed_requests'] += 1
+            raise e
+        finally:
+            processing_time = time.time() - start_time
+            with stats_lock:
+                stats['processing_times'].append(processing_time)
+                if len(stats['processing_times']) > 1000:
+                    stats['processing_times'] = stats['processing_times'][-1000:]
+    return wrapper
+
+# 装饰器：速率限制
+def rate_limit(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not RATE_LIMIT_ENABLED:
+            return f(*args, **kwargs)
+            
+        client_ip = request.remote_addr
+        now = time.time()
+        
+        with rateLimitStore_lock:
+            if client_ip not in rateLimitStore:
+                rateLimitStore[client_ip] = deque()
+            
+            # 清理过期的请求记录
+            while rateLimitStore[client_ip] and now - rateLimitStore[client_ip][0] > RATE_LIMIT_WINDOW:
+                rateLimitStore[client_ip].popleft()
+            
+            # 检查是否超过限制
+            if len(rateLimitStore[client_ip]) >= RATE_LIMIT_MAX:
+                return jsonify({
+                    'error': 'Too many requests',
+                    'retry_after': RATE_LIMIT_WINDOW - (now - rateLimitStore[client_ip][0])
+                }), 429
+            
+            # 记录当前请求
+            rateLimitStore[client_ip].append(now)
+        
+        return f(*args, **kwargs)
+    return wrapper
 
 def admin_required(f):
     @wraps(f)
@@ -44,17 +143,24 @@ def ensure_ascii(s, field_name):
     except UnicodeEncodeError:
         raise ValueError(f"{field_name} 只能包含英文字母、数字和符号（ASCII字符），请检查是否有中文或特殊符号。")
 
-UPLOAD_FOLDER = 'uploads'
-PENDING_DIR = 'pending'
-PROCESSING_DIR = 'processing'
-RESULTS_DIR = 'results'
-CONFIG_FILE = 'config.yaml'
+def is_safe_filename(filename):
+    """简单的文件名安全检查"""
+    if not filename:
+        return False
+    # 防止路径遍历攻击
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return False
+    return True
 
+def is_valid_base64_image(data):
+    """验证 base64 图片数据"""
+    if not data or not isinstance(data, str):
+        return False
+    # 简单检查格式
+    if not data.startswith('data:image/'):
+        return False
+    return True
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PENDING_DIR, exist_ok=True)
-os.makedirs(PROCESSING_DIR, exist_ok=True)
-os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
 logging.basicConfig(
@@ -67,11 +173,78 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 确保所有必要的目录存在
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(PENDING_DIR, exist_ok=True)
+os.makedirs(PROCESSING_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.secret_key = 'your-secret-key-here'  # 用于 flash 消息
+app.secret_key = SECRET_KEY
+
+# 启用CORS
+if CORS_ENABLED:
+    CORS(app)
+    logger.info('CORS enabled')
+
+# 添加安全头
+@app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 SERVER_START_TIME = time.time()
+
+# 健康检查端点
+@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
+@track_request_stats
+def health_check():
+    """健康检查端点，用于监控服务状态"""
+    try:
+        # 检查目录是否可写
+        dir_check = os.access(UPLOAD_FOLDER, os.W_OK) and \
+                   os.access(PENDING_DIR, os.W_OK) and \
+                   os.access(PROCESSING_DIR, os.W_OK) and \
+                   os.access(RESULTS_DIR, os.W_OK)
+        
+        # 检查配置
+        config = get_config()
+        config_check = config is not None
+        
+        uptime_seconds = time.time() - SERVER_START_TIME
+        
+        # 统计当前状态
+        pending_count = len([f for f in os.listdir(PENDING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+        processing_count = len([f for f in os.listdir(PROCESSING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+        
+        return jsonify({
+            'status': 'healthy' if dir_check and config_check else 'degraded',
+            'uptime_seconds': uptime_seconds,
+            'uptime_formatted': str(timedelta(seconds=int(uptime_seconds))),
+            'directories': {
+                'upload': {'path': UPLOAD_FOLDER, 'writable': os.access(UPLOAD_FOLDER, os.W_OK)},
+                'pending': {'path': PENDING_DIR, 'writable': os.access(PENDING_DIR, os.W_OK)},
+                'processing': {'path': PROCESSING_DIR, 'writable': os.access(PROCESSING_DIR, os.W_OK)},
+                'results': {'path': RESULTS_DIR, 'writable': os.access(RESULTS_DIR, os.W_OK)}
+            },
+            'queue': {
+                'pending': pending_count,
+                'processing': processing_count
+            },
+            'config': config_check,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f'Health check failed: {e}')
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 # 记录跳转目标页面
 @app.route('/admin/login', methods=['GET','POST'])
@@ -90,9 +263,11 @@ def admin_login():
 def inject_customization():
     # IP统计和封禁检查
     ip = request.remote_addr
-    if ip in bannedIPs:
-        return jsonify({'error': 'IP已被封禁'}), 403
-    ipRequests[ip] = ipRequests.get(ip, 0) + 1
+    with bannedIPs_lock:
+        if ip in bannedIPs:
+            return jsonify({'error': 'IP已被封禁'}), 403
+    with ipRequests_lock:
+        ipRequests[ip] = ipRequests.get(ip, 0) + 1
     
     customization = {'bg_type': 'gradient', 'bg_color1': '#667eea', 'bg_color2': '#764ba2', 'bg_image': '', 'opacity': 100}
     try:
@@ -108,28 +283,84 @@ def index():
     """主页，返回网页版客户端UI"""
     return render_template('index.html')
 
+
+@app.route('/teacher')
+@admin_required
+def teacher_page():
+    """教师阅卷系统"""
+    return render_template('teacher.html')
+
+@app.route('/library')
+@admin_required
+def library_page():
+    """试卷库管理页面"""
+    return render_template('library.html')
+
 @app.route('/upload_image', methods=['POST'])
+@rate_limit
+@track_request_stats
 def upload_image():
     """接收客户端上传的图片"""
     try:
         data = request.get_json()
         if not data or 'image_data' not in data:
             return jsonify({'error': 'No image data provided'}), 400
+        
+        image_data = data['image_data']
+        if not is_valid_base64_image(image_data):
+            return jsonify({'error': 'Invalid image data format'}), 400
 
         query_code = str(uuid.uuid4())
-        image_data = data['image_data']
         extension = image_data.split(';')[0].split('/')[-1]
+        # 验证扩展名
+        if extension not in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']:
+            return jsonify({'error': 'Unsupported image format'}), 400
         # 支持可选的优先级，默认 0，越小优先级越高
         priority = int(data.get('priority', 0))
+        # 获取模式，默认 quick
+        mode = data.get('mode', 'quick')
+        if mode not in ['quick', 'guided']:
+            mode = 'quick'
+        
+        # 获取年级，默认高中
+        grade = data.get('grade', '10-12')
+        valid_grades = ['1-2', '3-4', '5-6', '7-9', '10-12']
+        if grade not in valid_grades:
+            grade = '10-12'
+        
+        # 保存任务模式和年级信息到文件
+        mode_filepath = os.path.join(PENDING_DIR, f"{query_code}_mode.txt")
+        grade_filepath = os.path.join(PENDING_DIR, f"{query_code}_grade.txt")
+        try:
+            with open(mode_filepath, 'w', encoding='utf-8') as f:
+                f.write(mode)
+            with open(grade_filepath, 'w', encoding='utf-8') as f:
+                f.write(grade)
+        except Exception:
+            pass
+        
         # 文件名形如: 00000001_<query_code>.<ext>
         filename = f"{priority:08d}_{query_code}.{extension}"
         filepath = os.path.join(PENDING_DIR, filename)
 
         image_data = image_data.split(',')[1]
+        # 验证base64数据
+        try:
+            decoded = base64.b64decode(image_data, validate=True)
+            # 限制文件大小，比如 10MB
+            if len(decoded) > 10 * 1024 * 1024:
+                return jsonify({'error': 'Image too large (max 10MB)'}), 413
+        except Exception:
+            return jsonify({'error': 'Invalid base64 data'}), 400
+        
         with open(filepath, 'wb') as f:
-            f.write(base64.b64decode(image_data))
+            f.write(decoded)
+        
+        # 更新统计
+        global stats
+        stats['total_uploads'] += 1
 
-        logger.info(f"图片已上传，生成查询码: {query_code}")
+        logger.info(f"图片已上传，生成查询码: {query_code}，模式: {mode}，年级: {grade}")
         return jsonify({'query_code': query_code}), 200
 
     except Exception as e:
@@ -145,6 +376,12 @@ def query_status():
             return jsonify({'error': 'Invalid request format'}), 400
 
         query_code = data['query_code']
+        # 验证查询码格式，防止路径遍历
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        # 限制查询码长度
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
 
         result_file = None
         for f in os.listdir(RESULTS_DIR):
@@ -191,6 +428,12 @@ def generate_audio_api():
             return jsonify({'error': 'Invalid request format'}), 400
 
         query_code = data['query_code']
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
         cfg = get_config()
         tts_cfg = cfg.get('tts', {})
 
@@ -218,7 +461,115 @@ def generate_audio_api():
 @app.route('/results/<path:filename>')
 def serve_audio(filename):
     """提供音频文件"""
+    # 防止路径遍历攻击
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+    # 只允许访问wav文件和txt文件
+    if not filename.endswith('.wav') and not filename.endswith('.txt'):
+        return jsonify({'error': 'Invalid file type'}), 400
     return send_from_directory(RESULTS_DIR, filename)
+
+@app.route('/get_hints', methods=['POST'])
+def get_hints():
+    """获取逐步指导的提示"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 检查是否有提示
+        from processor import get_hints as get_hints_from_processor
+        hints = get_hints_from_processor(query_code)
+        
+        if hints is not None:
+            return jsonify({
+                'status': 'ready',
+                'hints': hints
+            })
+        
+        # 检查任务状态
+        # 先看是否在处理中
+        processing_file = None
+        for f in os.listdir(PROCESSING_DIR):
+            if f.startswith(query_code):
+                processing_file = f
+                break
+        
+        if processing_file:
+            return jsonify({'status': 'processing'})
+        
+        # 再看是否在等待中
+        pending_file = None
+        for f in os.listdir(PENDING_DIR):
+            if f.startswith(query_code):
+                pending_file = f
+                break
+        
+        if pending_file:
+            return jsonify({'status': 'pending'})
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"获取提示错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/get_knowledge', methods=['POST'])
+def get_knowledge():
+    """获取知识点图谱"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 获取知识点
+        from processor import get_knowledge_points
+        knowledge = get_knowledge_points(query_code)
+        
+        if knowledge is not None:
+            return jsonify({
+                'status': 'ready',
+                'knowledge': knowledge
+            })
+        
+        # 检查任务状态
+        processing_file = None
+        for f in os.listdir(PROCESSING_DIR):
+            if f.startswith(query_code):
+                processing_file = f
+                break
+        
+        if processing_file:
+            return jsonify({'status': 'processing'})
+        
+        pending_file = None
+        for f in os.listdir(PENDING_DIR):
+            if f.startswith(query_code):
+                pending_file = f
+                break
+        
+        if pending_file:
+            return jsonify({'status': 'pending'})
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"获取知识点错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 from flask import render_template
 
@@ -285,14 +636,19 @@ def admin_logs():
 @app.route('/admin/ip')
 @admin_required
 def ip_management():
-    return render_template('ip_management.html', stats=ipRequests, banned=list(bannedIPs))
+    with ipRequests_lock:
+        stats_copy = ipRequests.copy()
+    with bannedIPs_lock:
+        banned_copy = list(bannedIPs)
+    return render_template('ip_management.html', stats=stats_copy, banned=banned_copy)
 
 @app.route('/admin/ip/ban', methods=['POST'])
 @admin_required
 def ban_ip():
     ip = request.form.get('ip', '').strip()
     if ip:
-        bannedIPs.add(ip)
+        with bannedIPs_lock:
+            bannedIPs.add(ip)
         flash(f'已封禁 IP: {ip}', 'success')
     return redirect(url_for('ip_management'))
 
@@ -300,7 +656,8 @@ def ban_ip():
 @admin_required
 def unban_ip():
     ip = request.form.get('ip', '').strip()
-    if ip and ip in bannedIPs:
+    with bannedIPs_lock:
+        if ip and ip in bannedIPs:
         bannedIPs.discard(ip)
         flash(f'已解封 IP: {ip}', 'success')
     return redirect(url_for('ip_management'))
@@ -333,6 +690,7 @@ def _collect_tasks():
     except Exception:
         pass
     return tasks
+@app.route('/admin/api/summary', methods=['GET'])
 @admin_required
 def admin_api_summary():
     cfg = get_config()
@@ -392,9 +750,8 @@ def set_models():
         else:
             flash('所选模型不存在', 'error')
     else:
-        flash('请选择两个模型', 'error')
+            flash('请选择两个模型', 'error')
     return redirect(url_for('admin_dashboard'))
-    return redirect(url_for('admin'))
 
 @app.route('/admin/customization', methods=['GET', 'POST'])
 @admin_required
@@ -428,7 +785,7 @@ def tts_page():
         cfg['tts']['voice'] = request.form.get('voice', 'default')
         cfg['tts']['speed'] = float(request.form.get('speed', 1.0))
         cfg['tts']['model_name'] = request.form.get('model_name', 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice')
-        cfg['tts']['output_dir'] = request.form.get('output_dir', 'D:\\qwen-tts-webui\\core\\outputs').strip()
+        cfg['tts']['output_dir'] = request.form.get('output_dir', 'outputs').strip()
         cfg['tts']['refer_wav'] = request.form.get('refer_wav', '').strip()
         cfg['tts']['prompt_text'] = request.form.get('prompt_text', '').strip()
         cfg['tts']['prompt_language'] = request.form.get('prompt_language', 'zh')
@@ -437,7 +794,7 @@ def tts_page():
         save_config(cfg)
         flash('TTS 设置已保存', 'success')
         return redirect(url_for('tts_page'))
-    tts_cfg = cfg.get('tts', {'enabled': False, 'engine': 'qwen-tts', 'api_base': 'http://127.0.0.1:7860', 'voice': 'default', 'speed': 1.0, 'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', 'output_dir': 'D:\\qwen-tts-webui\\core\\outputs', 'refer_wav': '', 'prompt_text': '', 'prompt_language': 'zh', 'sovits_model': '', 'gpt_model': ''})
+    tts_cfg = cfg.get('tts', {'enabled': False, 'engine': 'qwen-tts', 'api_base': 'http://127.0.0.1:7860', 'voice': 'default', 'speed': 1.0, 'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', 'output_dir': 'outputs', 'refer_wav': '', 'prompt_text': '', 'prompt_language': 'zh', 'sovits_model': '', 'gpt_model': ''})
     return render_template('tts_settings.html', tts=tts_cfg)
 
 
@@ -671,9 +1028,839 @@ def chat_completions():
         logger.error(f"处理代理请求时发生错误: {str(e)}")
         return jsonify({'error': f'Proxy error: {str(e)}'}), 500
 
+# --- 公共统计API ---
+@app.route('/api/stats', methods=['GET'])
+@rate_limit
+@track_request_stats
+def get_public_stats():
+    """获取公共统计信息（无需登录）"""
+    uptime_seconds = time.time() - SERVER_START_TIME
+    
+    # 计算平均处理时间
+    avg_processing_time = 0
+    if stats['processing_times']:
+        avg_processing_time = sum(stats['processing_times']) / len(stats['processing_times'])
+    
+    return jsonify({
+        'uptime_seconds': uptime_seconds,
+        'uptime_formatted': str(timedelta(seconds=int(uptime_seconds))),
+        'total_requests': stats['total_requests'],
+        'success_rate': max(0, 100 - (stats['failed_requests'] / max(1, stats['total_requests']) * 100)) if stats['total_requests'] > 0 else 100,
+        'avg_processing_time_ms': avg_processing_time * 1000,
+        'timestamp': datetime.now().isoformat()
+    })
+
+# --- 任务取消API ---
+@app.route('/api/task/cancel', methods=['POST'])
+@rate_limit
+@track_request_stats
+def cancel_task():
+    """取消待处理的任务"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 查找任务文件
+        cancelled = False
+        
+        # 在待处理队列中查找
+        for fname in os.listdir(PENDING_DIR):
+            if query_code in fname and not fname.endswith('_mode.txt') and not fname.endswith('_grade.txt'):
+                filepath = os.path.join(PENDING_DIR, fname)
+                if os.path.isfile(filepath):
+                    # 同时删除模式和年级文件
+                    for suffix in ['_mode.txt', '_grade.txt']:
+                        sf = os.path.join(PENDING_DIR, f'{query_code}{suffix}')
+                        if os.path.exists(sf):
+                            os.remove(sf)
+                    os.remove(filepath)
+                    cancelled = True
+                    logger.info(f"任务 {query_code} 已从待处理队列中取消")
+        
+        if cancelled:
+            return jsonify({'status': 'cancelled', 'query_code': query_code})
+        
+        # 检查是否已经在处理中
+        for fname in os.listdir(PROCESSING_DIR):
+            if query_code in fname:
+                return jsonify({
+                    'error': 'Task is already processing and cannot be cancelled',
+                    'status': 'processing'
+                }), 400
+        
+        # 检查是否已经完成
+        for fname in os.listdir(RESULTS_DIR):
+            if query_code in fname and fname.endswith('.txt'):
+                return jsonify({
+                    'error': 'Task is already completed',
+                    'status': 'completed'
+                }), 400
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"取消任务错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# --- 任务清理函数 ---
+def cleanup_old_tasks():
+    """清理过期的任务文件"""
+    try:
+        cutoff_date = datetime.now() - timedelta(days=TASK_RETENTION_DAYS)
+        deleted_count = 0
+        
+        # 清理结果目录中的旧文件
+        for fname in os.listdir(RESULTS_DIR):
+            fpath = os.path.join(RESULTS_DIR, fname)
+            if os.path.isfile(fpath):
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                if file_mtime < cutoff_date:
+                    try:
+                        os.remove(fpath)
+                        deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"删除文件 {fpath} 失败: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"清理了 {deleted_count} 个过期任务文件")
+        
+        return deleted_count
+    except Exception as e:
+        logger.error(f"任务清理失败: {e}")
+        return 0
+
+# --- 管理员API：统计和清理 ---
+@app.route('/admin/api/stats', methods=['GET'])
+@admin_required
+def admin_stats():
+    """获取详细的统计信息（管理员）"""
+    global stats
+    
+    # 更新任务处理计数
+    result_files = [f for f in os.listdir(RESULTS_DIR) if f.endswith('.txt')]
+    audio_files = [f for f in os.listdir(RESULTS_DIR) if f.endswith('.wav')]
+    stats['total_tasks_processed'] = len(result_files)
+    stats['total_audio_generated'] = len(audio_files)
+    
+    # 计算平均处理时间
+    avg_processing_time = 0
+    if stats['processing_times']:
+        avg_processing_time = sum(stats['processing_times']) / len(stats['processing_times'])
+    
+    # 计算成功响应率
+    success_rate = 100
+    if stats['total_requests'] > 0:
+        success_rate = max(0, 100 - (stats['failed_requests'] / stats['total_requests'] * 100))
+    
+    # 统计各个队列的数量
+    pending_count = len([f for f in os.listdir(PENDING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+    processing_count = len([f for f in os.listdir(PROCESSING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+    
+    return jsonify({
+        'system': {
+            'start_time': stats['start_time'],
+            'uptime_seconds': time.time() - SERVER_START_TIME,
+            'uptime_formatted': str(timedelta(seconds=int(time.time() - SERVER_START_TIME)))
+        },
+        'requests': {
+            'total': stats['total_requests'],
+            'failed': stats['failed_requests'],
+            'success_rate': success_rate,
+            'avg_processing_time_ms': avg_processing_time * 1000
+        },
+        'tasks': {
+            'pending': pending_count,
+            'processing': processing_count,
+            'completed': len(result_files),
+            'audio_generated': len(audio_files)
+        },
+        'features': {
+            'cors_enabled': CORS_ENABLED,
+            'rate_limit_enabled': RATE_LIMIT_ENABLED,
+            'task_retention_days': TASK_RETENTION_DAYS
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/admin/api/cleanup', methods=['POST'])
+@admin_required
+def admin_cleanup():
+    """手动触发任务清理"""
+    try:
+        data = request.get_json() or {}
+        days = data.get('days', TASK_RETENTION_DAYS)
+        
+        if not isinstance(days, int) or days <= 0:
+            return jsonify({'error': 'Invalid days value'}), 400
+        
+        # 修改清理函数接受天数参数
+        cutoff_date = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        
+        # 清理结果目录中的旧文件
+        for fname in os.listdir(RESULTS_DIR):
+            fpath = os.path.join(RESULTS_DIR, fname)
+            if os.path.isfile(fpath):
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                if file_mtime < cutoff_date:
+                    try:
+                        os.remove(fpath)
+                        deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"删除文件 {fpath} 失败: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"清理了 {deleted_count} 个过期任务文件")
+        
+        return jsonify({
+            'status': 'success',
+            'deleted_count': deleted_count,
+            'cleanup_days': days
+        })
+    except Exception as e:
+        logger.error(f"管理员清理失败: {e}")
+        return jsonify({'error': 'Cleanup failed'}), 500
+
+# --- 配置管理API ---
+@app.route('/admin/api/config/reload', methods=['POST'])
+@admin_required
+def reload_config():
+    """重新加载配置文件"""
+    try:
+        global models_dict
+        models_dict = get_models_dict()  # 重新加载模型字典
+        logger.info("配置已重新加载")
+        return jsonify({
+            'status': 'success',
+            'models_count': len(models_dict),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"重新加载配置失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# --- 试卷库管理 API ---
+@app.route('/api/library/status', methods=['GET'])
+@track_request_stats
+def get_library_status():
+    """获取试卷库状态"""
+    try:
+        metadata = test_library.load_library_metadata()
+        return jsonify({
+            'success': True,
+            'total_papers': len(metadata['papers']),
+            'total_questions': metadata['total_questions'],
+            'last_updated': metadata.get('last_updated'),
+            'papers': metadata['papers']
+        })
+    except Exception as e:
+        logger.error(f'获取试卷库状态失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/upload', methods=['POST'])
+@rate_limit
+@track_request_stats
+def batch_upload_papers():
+    """批量上传试卷"""
+    try:
+        # 检查是否有文件上传
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': '没有上传文件'}), 400
+        
+        files = request.files.getlist('files')
+        paper_name = request.form.get('name', '未命名试卷')
+        grade = request.form.get('grade', '10-12')
+        class_id = request.form.get('class_id', '')  # 可选：关联班级
+        auto_detect = request.form.get('auto_detect', 'true').lower() == 'true'
+        work_mode = request.form.get('work_mode', 'auto')  # auto/manual_score/hybrid
+        
+        if not files:
+            return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+        
+        if work_mode not in ['auto', 'manual_score', 'hybrid']:
+            return jsonify({'success': False, 'error': '无效的工作模式'}), 400
+        
+        # 验证文件安全性
+        is_valid, error_msg = validate_batch_upload(files)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error_msg}), 400
+        
+        # 读取文件内容
+        image_files = []
+        for file in files:
+            if file.filename == '':
+                continue
+            image_files.append((file.filename, file.read()))
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
+        
+        # 调用增强版的批量分析
+        result = test_library.batch_analyze_papers(
+            image_files=image_files,
+            grade=grade,
+            paper_name=paper_name,
+            concurrency=int(request.form.get('concurrency', 4)),
+            class_id=class_id if class_id else None,
+            auto_detect_names=auto_detect,
+            work_mode=work_mode
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f'批量上传试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>', methods=['GET'])
+@track_request_stats
+def get_paper_detail(paper_id):
+    """获取单张试卷的详细分析"""
+    try:
+        analysis = test_library.load_paper_analysis(paper_id)
+        if not analysis:
+            return jsonify({'success': False, 'error': '试卷不存在'}), 404
+        
+        return jsonify({'success': True, 'analysis': analysis})
+    except Exception as e:
+        logger.error(f'获取试卷详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>', methods=['DELETE'])
+@admin_required
+def delete_paper(paper_id):
+    """删除试卷"""
+    try:
+        success = test_library.delete_paper(paper_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '删除失败'}), 500
+    except Exception as e:
+        logger.error(f'删除试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/optimize', methods=['POST'])
+@admin_required
+def generate_optimization_suggestions():
+    """生成提示词优化建议"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        grade = data.get('grade')
+        
+        result = test_library.generate_prompt_optimization_suggestions(
+            paper_ids=paper_ids,
+            grade=grade
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'生成优化建议失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/statistics', methods=['GET'])
+@admin_required
+def get_library_statistics():
+    """获取完整的试卷库统计"""
+    try:
+        stats = test_library.export_library_statistics()
+        return jsonify({'success': True, 'statistics': stats})
+    except Exception as e:
+        logger.error(f'获取统计信息失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- 新增试卷库功能 API ---
+
+@app.route('/api/library/wrong_questions', methods=['POST'])
+@rate_limit
+@track_request_stats
+def get_wrong_questions():
+    """获取错题"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        grade = data.get('grade')
+        
+        wrong_questions = test_library.get_all_wrong_questions(paper_ids, grade)
+        return jsonify({
+            'success': True,
+            'wrong_questions': wrong_questions,
+            'total_count': len(wrong_questions)
+        })
+    except Exception as e:
+        logger.error(f'获取错题失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/search', methods=['POST'])
+@rate_limit
+@track_request_stats
+def search_questions_api():
+    """搜索题目"""
+    try:
+        data = request.get_json() or {}
+        keyword = data.get('keyword', '')
+        paper_ids = data.get('paper_ids')
+        knowledge_point = data.get('knowledge_point')
+        question_type = data.get('question_type')
+        is_correct = data.get('is_correct')
+        
+        questions = test_library.search_questions(
+            keyword, paper_ids, knowledge_point, question_type, is_correct
+        )
+        return jsonify({
+            'success': True,
+            'questions': questions,
+            'total_count': len(questions)
+        })
+    except Exception as e:
+        logger.error(f'搜索题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/knowledge_points', methods=['GET'])
+@track_request_stats
+def get_knowledge_points_list():
+    """获取所有知识点列表"""
+    try:
+        knowledge_points = test_library.get_all_knowledge_points()
+        return jsonify({
+            'success': True,
+            'knowledge_points': knowledge_points
+        })
+    except Exception as e:
+        logger.error(f'获取知识点列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/knowledge_graph', methods=['GET'])
+@track_request_stats
+def get_knowledge_graph():
+    """获取知识点关联图谱"""
+    try:
+        graph_data = test_library.build_knowledge_point_graph()
+        return jsonify({
+            'success': True,
+            'graph': graph_data
+        })
+    except Exception as e:
+        logger.error(f'获取知识点图谱失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/tags', methods=['GET'])
+@track_request_stats
+def get_all_tags():
+    """获取所有标签"""
+    try:
+        tags = test_library.get_all_tags()
+        return jsonify({'success': True, 'tags': tags})
+    except Exception as e:
+        logger.error(f'获取标签失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>/tags', methods=['POST'])
+@admin_required
+def update_paper_tags_api(paper_id):
+    """更新试卷标签"""
+    try:
+        data = request.get_json() or {}
+        tags = data.get('tags', [])
+        
+        success = test_library.update_paper_tags(paper_id, tags)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '试卷未找到'}), 404
+    except Exception as e:
+        logger.error(f'更新标签失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/tags/<tag>', methods=['GET'])
+@track_request_stats
+def get_papers_by_tag(tag):
+    """按标签获取试卷"""
+    try:
+        papers = test_library.get_papers_by_tag(tag)
+        return jsonify({'success': True, 'papers': papers})
+    except Exception as e:
+        logger.error(f'按标签获取试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/generate_practice', methods=['POST'])
+@rate_limit
+@track_request_stats
+def generate_practice():
+    """生成错题练习"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        max_questions = data.get('max_questions', 50)
+        
+        practice_data = test_library.generate_wrong_questions_practice(paper_ids, max_questions)
+        return jsonify({'success': True, 'practice': practice_data})
+    except Exception as e:
+        logger.error(f'生成练习失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/export', methods=['POST'])
+@admin_required
+def export_questions():
+    """导出题目"""
+    try:
+        data = request.get_json() or {}
+        questions = data.get('questions', [])
+        paper_name = data.get('paper_name', '导出题目')
+        
+        filename = test_library.export_questions_to_json(questions, paper_name)
+        return jsonify({'success': True, 'filename': filename})
+    except Exception as e:
+        logger.error(f'导出题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- 班级管理API ---
+
+@app.route('/api/classes', methods=['GET'])
+@track_request_stats
+def get_classes():
+    """获取所有班级"""
+    try:
+        classes = test_library.get_all_classes()
+        return jsonify({'success': True, 'classes': classes})
+    except Exception as e:
+        logger.error(f'获取班级列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes', methods=['POST'])
+@admin_required
+def create_class():
+    """创建新班级"""
+    try:
+        data = request.get_json() or {}
+        class_name = data.get('name', '')
+        grade = data.get('grade', '10-12')
+        teacher_name = data.get('teacher_name', '')
+        
+        if not class_name:
+            return jsonify({'success': False, 'error': '班级名称不能为空'}), 400
+        
+        class_id = test_library.add_class(class_name, grade, teacher_name)
+        return jsonify({'success': True, 'class_id': class_id})
+    except Exception as e:
+        logger.error(f'创建班级失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/students', methods=['POST'])
+@admin_required
+def add_student(class_id):
+    """添加学生到班级"""
+    try:
+        data = request.get_json() or {}
+        student_info = data.get('student', {})
+        
+        success = test_library.add_student_to_class(class_id, student_info)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'添加学生失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/papers', methods=['POST'])
+@admin_required
+def assign_paper_to_class(class_id):
+    """将试卷分配给班级"""
+    try:
+        data = request.get_json() or {}
+        paper_id = data.get('paper_id', '')
+        
+        success = test_library.assign_paper_to_class(class_id, paper_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'分配试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/performance', methods=['GET'])
+@track_request_stats
+def get_class_performance(class_id):
+    """获取班级成绩分析"""
+    try:
+        performance = test_library.analyze_class_performance(class_id)
+        return jsonify(performance)
+    except Exception as e:
+        logger.error(f'获取班级成绩分析失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/report', methods=['POST'])
+@admin_required
+def generate_class_report(class_id):
+    """生成班级成绩报告"""
+    try:
+        report = test_library.export_class_report(class_id)
+        return jsonify(report)
+    except Exception as e:
+        logger.error(f'生成班级报告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>', methods=['DELETE'])
+@admin_required
+def delete_class(class_id):
+    """删除班级"""
+    try:
+        success = test_library.delete_class(class_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'删除班级失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- 学生成绩管理 API ---
+
+@app.route('/api/classes/<class_id>/scores', methods=['POST'])
+@admin_required
+def add_student_score(class_id):
+    """添加学生成绩"""
+    try:
+        data = request.get_json() or {}
+        student_id = data.get('student_id')
+        score_data = data.get('score', {})
+        
+        if not student_id:
+            return jsonify({'success': False, 'error': '学生ID不能为空'}), 400
+        
+        success = test_library.add_student_score(class_id, student_id, score_data)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '添加失败'}), 500
+    except Exception as e:
+        logger.error(f'添加学生成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores', methods=['GET'])
+@track_request_stats
+def get_class_scores(class_id):
+    """获取班级成绩"""
+    try:
+        paper_id = request.args.get('paper_id')
+        scores = test_library.get_class_scores(class_id, paper_id)
+        return jsonify({'success': True, 'scores': scores})
+    except Exception as e:
+        logger.error(f'获取班级成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores/statistics', methods=['GET'])
+@track_request_stats
+def get_class_score_statistics(class_id):
+    """获取班级成绩统计"""
+    try:
+        paper_id = request.args.get('paper_id')
+        statistics = test_library.calculate_class_statistics(class_id, paper_id)
+        return jsonify({'success': True, 'statistics': statistics})
+    except Exception as e:
+        logger.error(f'获取成绩统计失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/scores/ranking', methods=['GET'])
+@track_request_stats
+def get_class_score_ranking(class_id):
+    """获取班级成绩排名"""
+    try:
+        paper_id = request.args.get('paper_id')
+        ranking = test_library.get_student_ranking(class_id, paper_id)
+        return jsonify({'success': True, 'ranking': ranking})
+    except Exception as e:
+        logger.error(f'获取成绩排名失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/students/<student_id>/progress', methods=['GET'])
+@track_request_stats
+def get_student_progress(class_id, student_id):
+    """获取学生进步情况"""
+    try:
+        progress = test_library.get_student_progress(class_id, student_id)
+        return jsonify({'success': True, 'progress': progress})
+    except Exception as e:
+        logger.error(f'获取学生进步情况失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+
+# ========== 考试管理 API ==========
+
+@app.route('/api/exams', methods=['GET'])
+@track_request_stats
+def get_exams():
+    """获取所有考试"""
+    try:
+        # 初始化元数据以确保目录存在
+        test_library.init_exams_metadata()
+        from test_library import load_exams_metadata
+        all_exams = load_exams_metadata().get('exams', [])
+        
+        return jsonify({'success': True, 'exams': all_exams})
+    except Exception as e:
+        logger.error(f'获取考试列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams', methods=['POST'])
+@admin_required
+def create_exam():
+    """创建考试"""
+    try:
+        data = request.get_json() or {}
+        
+        result = test_library.create_exam(data)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'创建考试失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>', methods=['GET'])
+@track_request_stats
+def get_exam(exam_id):
+    """获取考试详情"""
+    try:
+        exam = test_library.get_exam_by_id(exam_id)
+        if exam:
+            return jsonify({'success': True, 'exam': exam})
+        else:
+            return jsonify({'success': False, 'error': '考试不存在'}), 404
+    except Exception as e:
+        logger.error(f'获取考试详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>', methods=['DELETE'])
+@admin_required
+def delete_exam(exam_id):
+    """删除考试"""
+    try:
+        success = test_library.delete_exam(exam_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '删除失败'}), 500
+    except Exception as e:
+        logger.error(f'删除考试失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/questions', methods=['POST'])
+@admin_required
+def add_exam_question(exam_id):
+    """添加题目到考试"""
+    try:
+        data = request.get_json() or {}
+        
+        success = test_library.add_question_to_exam(exam_id, data)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '添加失败'}), 500
+    except Exception as e:
+        logger.error(f'添加题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/ready', methods=['POST'])
+@admin_required
+def set_exam_ready(exam_id):
+    """设置考试就绪"""
+    try:
+        success = test_library.set_exam_ready(exam_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '设置失败'}), 500
+    except Exception as e:
+        logger.error(f'设置考试就绪失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/scan', methods=['POST'])
+@admin_required
+def scan_exam_answer_sheets(exam_id):
+    """批量扫描答题卡"""
+    try:
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': '没有上传文件'}), 400
+        
+        files = request.files.getlist('files')
+        
+        if not files:
+            return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+        
+        # 验证文件安全性
+        is_valid, error_msg = validate_batch_upload(files)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error_msg}), 400
+        
+        image_files = []
+        for file in files:
+            if file.filename == '':
+                continue
+            image_files.append((file.filename, file.read()))
+        
+        if not image_files:
+            return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
+        
+        result = test_library.batch_scan_answer_sheets(exam_id, image_files)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'扫描答题卡失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/confirm', methods=['POST'])
+@admin_required
+def confirm_exam(exam_id):
+    """确认考试成绩"""
+    try:
+        result = test_library.confirm_exam_scores(exam_id)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'确认成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/adjust', methods=['POST'])
+@admin_required
+def adjust_exam_score(exam_id):
+    """调整单条成绩"""
+    try:
+        data = request.get_json() or {}
+        student_number = data.get('student_number')
+        score = data.get('score')
+        
+        if not student_number or score is None:
+            return jsonify({'success': False, 'error': '参数不完整'}), 400
+        
+        result = test_library.adjust_score(exam_id, student_number, float(score))
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'调整成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/analysis', methods=['GET'])
+@track_request_stats
+def get_exam_analysis(exam_id):
+    """获取考试详细分析"""
+    try:
+        result = test_library.get_exam_analysis(exam_id)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'获取考试分析失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
 _EXECUTOR = None
+_CLEANUP_RUNNING = False
 
 def _init_scanner_once():
     global _SCANNER_INITIALIZED, _EXECUTOR
@@ -685,8 +1872,32 @@ def _init_scanner_once():
     logger.info("后台任务扫描已启动")
     _SCANNER_INITIALIZED = True
 
+# 启动后台任务清理（每天一次）
+def _start_cleanup_task():
+    """启动后台清理任务"""
+    def cleanup_loop():
+        global _CLEANUP_RUNNING
+        _CLEANUP_RUNNING = True
+        logger.info(f"任务清理任务已启动，保留天数: {TASK_RETENTION_DAYS}")
+        
+        while True:
+            try:
+                # 每天在固定时间清理（例如凌晨3点）
+                now = datetime.now()
+                # 简单的实现：每24小时清理一次
+                time.sleep(24 * 60 * 60)
+                cleanup_old_tasks()
+            except Exception as e:
+                logger.error(f"清理循环错误: {e}")
+                time.sleep(60)  # 出错后等待一分钟重试
+    
+    import threading
+    cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
+    cleanup_thread.start()
+
 if __name__ == '__main__':
     _init_scanner_once()
+    _start_cleanup_task()  # 启动清理任务
     logger.info("服务器启动，开始监听...")
 
     # 从环境变量获取端口，默认 8000
@@ -695,3 +1906,4 @@ if __name__ == '__main__':
 else:
     # 在非主模块运行时（如某些 WSGI 服务器），也尝试启动后台扫描以处理任务
     _init_scanner_once()
+    # _start_cleanup_task()  # 可选：在非主模块也启动清理任务
