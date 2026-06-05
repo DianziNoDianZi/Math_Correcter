@@ -1,0 +1,1080 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>教师阅卷系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drop-zone {
+            border: 2px dashed #ccc;
+            transition: all 0.3s ease;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
+        }
+        .tab-active {
+            color: #3b82f6;
+            border-bottom: 2px solid #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <h1 class="text-3xl font-bold text-center text-indigo-600 mb-8">📚 教师阅卷系统</h1>
+        
+        <!-- 顶部导航 -->
+        <div class="bg-white rounded-lg shadow mb-8">
+            <div class="flex border-b">
+                <button onclick="showSection('exam')" id="nav-exam" class="flex-1 px-6 py-4 font-medium text-indigo-600 tab-active text-center">
+                    📝 考试管理
+                </button>
+                <button onclick="showSection('scan')" id="nav-scan" class="flex-1 px-6 py-4 font-medium text-gray-600 hover:text-indigo-600 text-center">
+                    🔍 答题卡扫描
+                </button>
+                <button onclick="showSection('review')" id="nav-review" class="flex-1 px-6 py-4 font-medium text-gray-600 hover:text-indigo-600 text-center">
+                    ✅ 成绩审核
+                </button>
+                <button onclick="showSection('analysis')" id="nav-analysis" class="flex-1 px-6 py-4 font-medium text-gray-600 hover:text-indigo-600 text-center">
+                    📊 学情分析
+                </button>
+                <button onclick="showSection('classes')" id="nav-classes" class="flex-1 px-6 py-4 font-medium text-gray-600 hover:text-indigo-600 text-center">
+                    🏫 班级管理
+                </button>
+            </div>
+        </div>
+        
+        <!-- ========== 考试管理 ========== -->
+        <div id="section-exam">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold">考试列表</h2>
+                    <button onclick="showCreateExamModal()" class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+                        ➕ 创建考试
+                    </button>
+                </div>
+                
+                <!-- 筛选 -->
+                <div class="flex gap-4 mb-4">
+                    <select id="filter-class" class="border rounded px-3 py-2" onchange="loadExams()">
+                        <option value="">全部班级</option>
+                    </select>
+                    <select id="filter-status" class="border rounded px-3 py-2" onchange="loadExams()">
+                        <option value="">全部状态</option>
+                        <option value="draft">草稿</option>
+                        <option value="ready">就绪</option>
+                        <option value="scanning">扫描中</option>
+                        <option value="reviewing">待审核</option>
+                        <option value="completed">已完成</option>
+                    </select>
+                </div>
+                
+                <!-- 考试列表 -->
+                <div id="exam-list" class="space-y-4">
+                    <p class="text-gray-500 text-center py-8">暂无考试</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 答题卡扫描 ========== -->
+        <div id="section-scan" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-6">答题卡扫描</h2>
+                
+                <!-- 选择考试 -->
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择考试</label>
+                    <select id="scan-exam-select" class="shadow border rounded w-full py-2 px-3" onchange="onExamSelected()">
+                        <option value="">请选择考试（状态必须是"就绪"）</option>
+                    </select>
+                </div>
+                
+                <!-- 考试信息 -->
+                <div id="exam-info" class="hidden bg-blue-50 rounded-lg p-4 mb-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <div class="text-sm text-gray-600">考试名称</div>
+                            <div class="font-medium" id="info-name">-</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-600">总题目数</div>
+                            <div class="font-medium" id="info-questions">-</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-600">总分</div>
+                            <div class="font-medium" id="info-total">-</div>
+                        </div>
+                        <div>
+                            <div class="text-sm text-gray-600">班级学生数</div>
+                            <div class="font-medium" id="info-students">-</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 上传区域 -->
+                <div id="drop-zone" class="drop-zone rounded-lg p-12 text-center cursor-pointer mb-6">
+                    <div class="text-gray-500">
+                        <div class="text-5xl mb-4">📁</div>
+                        <p class="font-medium text-lg mb-2">拖拽所有答题卡图片到这里</p>
+                        <p class="text-sm text-gray-400">支持一次上传多张图片（.jpg, .png）</p>
+                    </div>
+                    <input type="file" id="file-input" accept="image/*" multiple class="hidden">
+                </div>
+                
+                <!-- 已选文件 -->
+                <div id="selected-files" class="hidden mb-6">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="font-medium">已选择 <span id="file-count">0</span> 张答题卡</h3>
+                        <button onclick="clearFiles()" class="text-sm text-red-500 hover:text-red-700">清空</button>
+                    </div>
+                    <div id="file-list" class="max-h-48 overflow-y-auto bg-gray-50 rounded p-4 space-y-2"></div>
+                </div>
+                
+                <!-- 开始扫描按钮 -->
+                <button onclick="startScan()" id="scan-btn" class="w-full bg-green-500 hover:bg-green-700 text-white font-bold py-3 px-6 rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                    🚀 开始扫描
+                </button>
+            </div>
+        </div>
+        
+        <!-- ========== 成绩审核 ========== -->
+        <div id="section-review" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-6">成绩审核</h2>
+                
+                <!-- 选择考试 -->
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择待审核考试</label>
+                    <select id="review-exam-select" class="shadow border rounded w-full py-2 px-3" onchange="loadReviewData()">
+                        <option value="">请选择考试</option>
+                    </select>
+                </div>
+                
+                <!-- 审核内容 -->
+                <div id="review-content" class="hidden">
+                    <!-- 审核摘要 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-blue-600" id="review-total">0</div>
+                            <div class="text-sm text-gray-600">扫描数量</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="review-matched">0</div>
+                            <div class="text-sm text-gray-600">已匹配</div>
+                        </div>
+                        <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-yellow-600" id="review-unmatched">0</div>
+                            <div class="text-sm text-gray-600">未匹配</div>
+                        </div>
+                        <div class="bg-purple-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-purple-600" id="review-avg">0%</div>
+                            <div class="text-sm text-gray-600">平均正确率</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 成绩列表 -->
+                    <div class="mb-6">
+                        <h3 class="font-medium mb-3">学生成绩列表</h3>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">总分</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">正确率</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">状态</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="review-score-body" class="bg-white divide-y divide-gray-200">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- 审核按钮 -->
+                    <div class="flex gap-4">
+                        <button onclick="confirmAllScores()" class="flex-1 bg-green-500 hover:bg-green-700 text-white font-bold py-3 px-6 rounded">
+                            ✅ 确认所有成绩
+                        </button>
+                        <button onclick="exportScores()" class="flex-1 bg-purple-500 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded">
+                            📄 导出成绩
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 学情分析 ========== -->
+        <div id="section-analysis" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <h2 class="text-xl font-semibold mb-6">学情分析</h2>
+                
+                <!-- 选择考试 -->
+                <div class="mb-6">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择已完成考试</label>
+                    <select id="analysis-exam-select" class="shadow border rounded w-full py-2 px-3" onchange="loadAnalysisData()">
+                        <option value="">请选择考试</option>
+                    </select>
+                </div>
+                
+                <div id="analysis-content" class="hidden">
+                    <!-- 班级整体统计 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-blue-600" id="analysis-avg">0</div>
+                            <div class="text-sm text-gray-600">平均分</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="analysis-pass">0%</div>
+                            <div class="text-sm text-gray-600">及格率</div>
+                        </div>
+                        <div class="bg-yellow-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-yellow-600" id="analysis-highest">0</div>
+                            <div class="text-sm text-gray-600">最高分</div>
+                        </div>
+                        <div class="bg-red-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-red-600" id="analysis-lowest">0</div>
+                            <div class="text-sm text-gray-600">最低分</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 题目错题率 -->
+                    <div class="mb-6">
+                        <h3 class="font-medium mb-3">📋 各题错题率</h3>
+                        <div id="question-stats" class="space-y-2"></div>
+                    </div>
+                    
+                    <!-- 知识点掌握情况 -->
+                    <div>
+                        <h3 class="font-medium mb-3">📚 知识点掌握情况</h3>
+                        <div id="knowledge-stats" class="space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 班级管理 ========== -->
+        <div id="section-classes" class="hidden">
+            <div class="bg-white rounded-lg shadow p-6 mb-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold">班级管理</h2>
+                    <button onclick="showCreateClassModal()" class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+                        ➕ 创建班级
+                    </button>
+                </div>
+                
+                <!-- 班级列表 -->
+                <div id="class-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <p class="text-gray-500 text-center py-8 col-span-3">暂无班级</p>
+                </div>
+            </div>
+            
+            <!-- 班级详情模态框 -->
+            <div id="class-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+                <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 id="modal-class-title" class="text-xl font-semibold">班级详情</h2>
+                            <button onclick="closeClassModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                        </div>
+                        
+                        <!-- 添加学生 -->
+                        <div class="bg-gray-50 rounded-lg p-4 mb-6">
+                            <h3 class="font-medium mb-3">添加学生</h3>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                <input type="text" id="student-name" placeholder="学生姓名 *" class="shadow border rounded py-2 px-3">
+                                <input type="text" id="student-number" placeholder="学号 *" class="shadow border rounded py-2 px-3">
+                            </div>
+                            <button onclick="addStudent()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                                添加
+                            </button>
+                        </div>
+                        
+                        <!-- 学生列表 -->
+                        <div>
+                            <h3 class="font-medium mb-3">学生列表</h3>
+                            <div id="student-list" class="space-y-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 创建考试模态框 ========== -->
+        <div id="exam-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+            <div class="bg-white rounded-lg max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-xl font-semibold">创建考试</h2>
+                        <button onclick="closeExamModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-gray-700 text-sm font-bold mb-2">考试名称 *</label>
+                            <input type="text" id="exam-name" placeholder="例如：期中数学考试" class="shadow border rounded w-full py-2 px-3">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-bold mb-2">班级 *</label>
+                                <select id="exam-class" class="shadow border rounded w-full py-2 px-3">
+                                    <option value="">请选择班级</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-bold mb-2">总分</label>
+                                <input type="number" id="exam-total" value="100" class="shadow border rounded w-full py-2 px-3">
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="text-gray-700 text-sm font-bold">题目列表</label>
+                                <button onclick="addQuestion()" class="text-sm text-indigo-600 hover:text-indigo-800">➕ 添加题目</button>
+                            </div>
+                            <div id="question-list" class="space-y-3 max-h-60 overflow-y-auto bg-gray-50 rounded p-4">
+                                <p class="text-gray-500 text-sm text-center">暂无题目，点击上方按钮添加</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex gap-4 pt-4">
+                            <button onclick="saveExam()" class="flex-1 bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">
+                                创建考试
+                            </button>
+                            <button onclick="saveAndReady()" class="flex-1 bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                                创建并设为就绪
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- ========== 扫描进度模态框 ========== -->
+        <div id="scan-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+            <div class="bg-white rounded-lg max-w-md w-full mx-4 p-6">
+                <h2 class="text-xl font-semibold mb-4 text-center">正在扫描...</h2>
+                <div class="mb-4">
+                    <div class="flex justify-between text-sm mb-2">
+                        <span id="scan-text">识别中...</span>
+                        <span id="scan-percent">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div id="scan-bar" class="bg-indigo-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = window.location.origin;
+        let selectedFiles = [];
+        let currentExam = null;
+        let currentClass = null;
+        let examQuestions = [];
+        let classes = [];
+
+        // ========== 初始化 ==========
+        document.addEventListener('DOMContentLoaded', () => {
+            initDragDrop();
+            loadClasses();
+            loadExams();
+        });
+
+        // ========== 导航 ==========
+        function showSection(section) {
+            ['exam', 'scan', 'review', 'analysis', 'classes'].forEach(s => {
+                document.getElementById(`section-${s}`).classList.add('hidden');
+                document.getElementById(`nav-${s}`).classList.remove('tab-active', 'text-indigo-600');
+                document.getElementById(`nav-${s}`).classList.add('text-gray-600');
+            });
+            
+            document.getElementById(`section-${section}`).classList.remove('hidden');
+            const nav = document.getElementById(`nav-${section}`);
+            nav.classList.remove('text-gray-600');
+            nav.classList.add('tab-active', 'text-indigo-600');
+            
+            if (section === 'scan') loadExamSelect();
+            if (section === 'review') loadReviewExamSelect();
+            if (section === 'analysis') loadAnalysisExamSelect();
+            if (section === 'classes') loadClasses();
+        }
+
+        // ========== 班级管理 ==========
+        async function loadClasses() {
+            try {
+                const res = await fetch(`${API}/api/classes`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    classes = data.classes || [];
+                    renderClassList();
+                    updateClassSelects();
+                }
+            } catch (e) {
+                console.error('加载班级失败:', e);
+            }
+        }
+
+        function renderClassList() {
+            const container = document.getElementById('class-list');
+            if (classes.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8 col-span-3">暂无班级</p>';
+                return;
+            }
+            
+            container.innerHTML = classes.map(c => `
+                <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" onclick="openClassDetail('${c.id}')">
+                    <h3 class="font-semibold text-lg mb-2">${c.name}</h3>
+                    <p class="text-sm text-gray-600 mb-1">年级: ${c.grade || '-'}</p>
+                    <p class="text-sm text-gray-600">学生数: ${(c.students || []).length}</p>
+                </div>
+            `).join('');
+        }
+
+        function updateClassSelects() {
+            const options = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            document.getElementById('filter-class').innerHTML = '<option value="">全部班级</option>' + options;
+            document.getElementById('exam-class').innerHTML = '<option value="">请选择班级</option>' + options;
+        }
+
+        function showCreateClassModal() {
+            const name = prompt('班级名称:');
+            if (!name) return;
+            
+            const grade = prompt('年级 (例如: 10-12):') || '10-12';
+            const teacher = prompt('班主任:') || '';
+            
+            createClass({ name, grade, teacher_name: teacher });
+        }
+
+        async function createClass(data) {
+            try {
+                const res = await fetch(`${API}/api/classes`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    alert('班级创建成功！');
+                    loadClasses();
+                } else {
+                    alert('创建失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('创建失败');
+            }
+        }
+
+        async function openClassDetail(classId) {
+            currentClass = classes.find(c => c.id === classId);
+            if (!currentClass) return;
+            
+            document.getElementById('modal-class-title').textContent = currentClass.name;
+            renderStudentList();
+            document.getElementById('class-modal').classList.remove('hidden');
+        }
+
+        function renderStudentList() {
+            const container = document.getElementById('student-list');
+            const students = currentClass?.students || [];
+            
+            if (students.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">暂无学生</p>';
+                return;
+            }
+            
+            container.innerHTML = students.map(s => `
+                <div class="flex justify-between items-center bg-gray-50 rounded px-3 py-2">
+                    <span>${s.name} <span class="text-gray-500 text-sm">(${s.student_number})</span></span>
+                </div>
+            `).join('');
+        }
+
+        function closeClassModal() {
+            document.getElementById('class-modal').classList.add('hidden');
+            currentClass = null;
+        }
+
+        async function addStudent() {
+            const name = document.getElementById('student-name').value.trim();
+            const number = document.getElementById('student-number').value.trim();
+            
+            if (!name || !number) {
+                alert('请填写姓名和学号');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/classes/${currentClass.id}/students`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student: { name, student_number: number } })
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    alert('添加成功！');
+                    document.getElementById('student-name').value = '';
+                    document.getElementById('student-number').value = '';
+                    loadClasses().then(() => {
+                        currentClass = classes.find(c => c.id === currentClass.id);
+                        renderStudentList();
+                    });
+                } else {
+                    alert('添加失败');
+                }
+            } catch (e) {
+                alert('添加失败');
+            }
+        }
+
+        // ========== 考试管理 ==========
+        async function loadExams() {
+            try {
+                const classFilter = document.getElementById('filter-class').value;
+                const statusFilter = document.getElementById('filter-status').value;
+                
+                const res = await fetch(`${API}/api/exams`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    let exams = data.exams || [];
+                    
+                    if (classFilter) exams = exams.filter(e => e.class_id === classFilter);
+                    if (statusFilter) exams = exams.filter(e => e.status === statusFilter);
+                    
+                    renderExamList(exams);
+                }
+            } catch (e) {
+                console.error('加载考试失败:', e);
+            }
+        }
+
+        function renderExamList(exams) {
+            const container = document.getElementById('exam-list');
+            
+            if (exams.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8">暂无考试</p>';
+                return;
+            }
+            
+            const statusMap = {
+                'draft': ['草稿', 'gray'],
+                'ready': ['就绪', 'blue'],
+                'scanning': ['扫描中', 'yellow'],
+                'reviewing': ['待审核', 'orange'],
+                'completed': ['已完成', 'green']
+            };
+            
+            container.innerHTML = exams.map(e => {
+                const [text, color] = statusMap[e.status] || ['未知', 'gray'];
+                const cls = classes.find(c => c.id === e.class_id);
+                
+                return `
+                    <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <h3 class="font-semibold text-lg">${e.name}</h3>
+                                <p class="text-sm text-gray-600">${cls?.name || '未分配班级'} | ${e.questions?.length || 0}题 | 总分${e.total_score}</p>
+                            </div>
+                            <span class="px-3 py-1 rounded-full text-sm bg-${color}-100 text-${color}-800">${text}</span>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            ${e.status === 'draft' ? `<button onclick="editExam('${e.id}')" class="text-sm text-indigo-600 hover:text-indigo-800">编辑题目</button>` : ''}
+                            ${e.status === 'ready' ? `<button onclick="goToScan('${e.id}')" class="text-sm text-green-600 hover:text-green-800">开始扫描</button>` : ''}
+                            ${e.status === 'reviewing' ? `<button onclick="goToReview('${e.id}')" class="text-sm text-orange-600 hover:text-orange-800">去审核</button>` : ''}
+                            ${e.status === 'completed' ? `<button onclick="goToAnalysis('${e.id}')" class="text-sm text-blue-600 hover:text-blue-800">查看分析</button>` : ''}
+                            <button onclick="deleteExam('${e.id}')" class="text-sm text-red-600 hover:text-red-800">删除</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function showCreateExamModal() {
+            examQuestions = [];
+            document.getElementById('exam-name').value = '';
+            document.getElementById('exam-total').value = '100';
+            renderQuestionList();
+            document.getElementById('exam-modal').classList.remove('hidden');
+        }
+
+        function closeExamModal() {
+            document.getElementById('exam-modal').classList.add('hidden');
+        }
+
+        function addQuestion() {
+            const type = prompt('题型 (choice/true_false/fill_blank/subjective):') || 'choice';
+            const score = parseFloat(prompt('分值:') || '5');
+            const correct = prompt('正确答案:');
+            const kp = prompt('知识点 (多个用逗号分隔):') || '';
+            
+            examQuestions.push({
+                type,
+                score,
+                correct_answer: correct,
+                knowledge_points: kp.split(',').map(s => s.trim()).filter(s => s)
+            });
+            
+            renderQuestionList();
+        }
+
+        function renderQuestionList() {
+            const container = document.getElementById('question-list');
+            
+            if (examQuestions.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm text-center">暂无题目，点击上方按钮添加</p>';
+                return;
+            }
+            
+            container.innerHTML = examQuestions.map((q, i) => `
+                <div class="bg-white rounded p-3 flex justify-between items-center">
+                    <div>
+                        <span class="font-medium">第${i + 1}题</span>
+                        <span class="text-sm text-gray-600 ml-2">[${q.type}]</span>
+                        <span class="text-sm text-gray-600 ml-2">${q.score}分</span>
+                        <span class="text-sm text-gray-600 ml-2">答案: ${q.correct_answer || '-'}</span>
+                    </div>
+                    <button onclick="removeQuestion(${i})" class="text-red-500 hover:text-red-700">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function removeQuestion(index) {
+            examQuestions.splice(index, 1);
+            renderQuestionList();
+        }
+
+        async function saveExam(setReady = false) {
+            const name = document.getElementById('exam-name').value.trim();
+            const classId = document.getElementById('exam-class').value;
+            const totalScore = parseFloat(document.getElementById('exam-total').value) || 100;
+            
+            if (!name || !classId) {
+                alert('请填写考试名称和选择班级');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name,
+                        class_id: classId,
+                        total_score: totalScore,
+                        grade: classes.find(c => c.id === classId)?.grade
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    const examId = data.exam_id;
+                    
+                    // 添加题目
+                    for (const q of examQuestions) {
+                        await fetch(`${API}/api/exams/${examId}/questions`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(q)
+                        });
+                    }
+                    
+                    if (setReady || examQuestions.length > 0) {
+                        await fetch(`${API}/api/exams/${examId}/ready`, { method: 'POST' });
+                    }
+                    
+                    alert('考试创建成功！');
+                    closeExamModal();
+                    loadExams();
+                } else {
+                    alert('创建失败');
+                }
+            } catch (e) {
+                alert('创建失败');
+            }
+        }
+
+        async function saveAndReady() {
+            await saveExam(true);
+        }
+
+        async function deleteExam(examId) {
+            if (!confirm('确定要删除这个考试吗？')) return;
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${examId}`, { method: 'DELETE' });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert('删除成功');
+                    loadExams();
+                }
+            } catch (e) {
+                alert('删除失败');
+            }
+        }
+
+        function goToScan(examId) {
+            showSection('scan');
+            document.getElementById('scan-exam-select').value = examId;
+            onExamSelected();
+        }
+
+        function goToReview(examId) {
+            showSection('review');
+            document.getElementById('review-exam-select').value = examId;
+            loadReviewData();
+        }
+
+        function goToAnalysis(examId) {
+            showSection('analysis');
+            document.getElementById('analysis-exam-select').value = examId;
+            loadAnalysisData();
+        }
+
+        // ========== 答题卡扫描 ==========
+        async function loadExamSelect() {
+            const res = await fetch(`${API}/api/exams`);
+            const data = await res.json();
+            
+            if (data.success) {
+                const readyExams = (data.exams || []).filter(e => e.status === 'ready');
+                document.getElementById('scan-exam-select').innerHTML = 
+                    '<option value="">请选择考试</option>' + 
+                    readyExams.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+            }
+        }
+
+        async function onExamSelected() {
+            const examId = document.getElementById('scan-exam-select').value;
+            
+            if (!examId) {
+                document.getElementById('exam-info').classList.add('hidden');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${examId}`);
+                const data = await res.json();
+                
+                if (data.success && data.exam) {
+                    currentExam = data.exam;
+                    const cls = classes.find(c => c.id === currentExam.class_id);
+                    
+                    document.getElementById('info-name').textContent = currentExam.name;
+                    document.getElementById('info-questions').textContent = currentExam.questions?.length || 0;
+                    document.getElementById('info-total').textContent = currentExam.total_score;
+                    document.getElementById('info-students').textContent = cls?.students?.length || 0;
+                    document.getElementById('exam-info').classList.remove('hidden');
+                }
+            } catch (e) {
+                console.error('加载考试信息失败:', e);
+            }
+        }
+
+        function initDragDrop() {
+            const dropZone = document.getElementById('drop-zone');
+            const fileInput = document.getElementById('file-input');
+            
+            dropZone.addEventListener('click', () => fileInput.click());
+            
+            dropZone.addEventListener('dragover', e => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            
+            dropZone.addEventListener('drop', e => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            
+            fileInput.addEventListener('change', e => handleFiles(e.target.files));
+        }
+
+        function handleFiles(files) {
+            selectedFiles = [...files];
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const container = document.getElementById('file-list');
+            const selectedDiv = document.getElementById('selected-files');
+            const scanBtn = document.getElementById('scan-btn');
+            
+            if (selectedFiles.length === 0) {
+                selectedDiv.classList.add('hidden');
+                scanBtn.disabled = true;
+                return;
+            }
+            
+            selectedDiv.classList.remove('hidden');
+            scanBtn.disabled = !currentExam;
+            
+            document.getElementById('file-count').textContent = selectedFiles.length;
+            container.innerHTML = selectedFiles.map((f, i) => `
+                <div class="flex justify-between items-center bg-white rounded px-3 py-2">
+                    <span class="text-sm truncate flex-1">${f.name}</span>
+                    <button onclick="removeFile(${i})" class="text-red-500 ml-2">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('file-input').value = '';
+            updateFileList();
+        }
+
+        async function startScan() {
+            if (!currentExam || selectedFiles.length === 0) return;
+            
+            document.getElementById('scan-modal').classList.remove('hidden');
+            
+            const formData = new FormData();
+            selectedFiles.forEach(f => formData.append('files', f));
+            
+            // 模拟进度
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                document.getElementById('scan-bar').style.width = `${progress}%`;
+                document.getElementById('scan-percent').textContent = `${progress}%`;
+                document.getElementById('scan-text').textContent = progress < 50 ? '识别中...' : '处理中...';
+            }, 200);
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/scan`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                
+                clearInterval(interval);
+                document.getElementById('scan-bar').style.width = '100%';
+                document.getElementById('scan-percent').textContent = '100%';
+                document.getElementById('scan-text').textContent = '完成！';
+                
+                setTimeout(() => {
+                    document.getElementById('scan-modal').classList.add('hidden');
+                    
+                    if (data.success) {
+                        alert(`扫描完成！\n总计: ${data.total_scanned}张\n匹配: ${data.matched}张\n未匹配: ${data.unmatched}张`);
+                        clearFiles();
+                        showSection('review');
+                        document.getElementById('review-exam-select').value = currentExam.id;
+                        loadReviewData();
+                    } else {
+                        alert('扫描失败: ' + (data.error || '未知错误'));
+                    }
+                }, 500);
+            } catch (e) {
+                clearInterval(interval);
+                document.getElementById('scan-modal').classList.add('hidden');
+                alert('扫描失败');
+            }
+        }
+
+        // ========== 成绩审核 ==========
+        async function loadReviewExamSelect() {
+            const res = await fetch(`${API}/api/exams`);
+            const data = await res.json();
+            
+            if (data.success) {
+                const reviewingExams = (data.exams || []).filter(e => e.status === 'reviewing');
+                document.getElementById('review-exam-select').innerHTML = 
+                    '<option value="">请选择考试</option>' + 
+                    reviewingExams.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+            }
+        }
+
+        async function loadReviewData() {
+            const examId = document.getElementById('review-exam-select').value;
+            
+            if (!examId) {
+                document.getElementById('review-content').classList.add('hidden');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${examId}`);
+                const data = await res.json();
+                
+                if (data.success && data.exam) {
+                    currentExam = data.exam;
+                    renderReviewContent();
+                }
+            } catch (e) {
+                console.error('加载审核数据失败:', e);
+            }
+        }
+
+        function renderReviewContent() {
+            document.getElementById('review-content').classList.remove('hidden');
+            
+            const scores = currentExam.scores || [];
+            const matched = scores.filter(s => s.student_id).length;
+            const totalAccuracy = scores.length > 0 
+                ? scores.reduce((sum, s) => sum + (s.accuracy || 0), 0) / scores.length 
+                : 0;
+            
+            document.getElementById('review-total').textContent = scores.length;
+            document.getElementById('review-matched').textContent = matched;
+            document.getElementById('review-unmatched').textContent = scores.length - matched;
+            document.getElementById('review-avg').textContent = `${totalAccuracy.toFixed(1)}%`;
+            
+            const tbody = document.getElementById('review-score-body');
+            tbody.innerHTML = scores.map(s => {
+                const isMatched = !!s.student_id;
+                return `
+                    <tr class="${isMatched ? '' : 'bg-yellow-50'}">
+                        <td class="px-4 py-2">${s.student_number || '-'}</td>
+                        <td class="px-4 py-2">${s.student_name || '未匹配'}</td>
+                        <td class="px-4 py-2 font-medium">${s.total_score}/${s.max_score}</td>
+                        <td class="px-4 py-2">${(s.accuracy || 0).toFixed(1)}%</td>
+                        <td class="px-4 py-2">
+                            <span class="px-2 py-1 rounded text-xs ${isMatched ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                ${isMatched ? '已匹配' : '未匹配'}
+                            </span>
+                        </td>
+                        <td class="px-4 py-2">
+                            ${isMatched ? `<button onclick="adjustScore('${s.student_number}')" class="text-sm text-indigo-600 hover:text-indigo-800">调整</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function adjustScore(studentNumber) {
+            const newScore = prompt('请输入调整后的分数:');
+            if (newScore === null) return;
+            
+            fetch(`${API}/api/exams/${currentExam.id}/adjust`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_number: studentNumber, score: parseFloat(newScore) })
+            }).then(res => res.json()).then(data => {
+                if (data.success) {
+                    alert('调整成功');
+                    loadReviewData();
+                }
+            });
+        }
+
+        async function confirmAllScores() {
+            if (!confirm('确认所有成绩？确认后成绩将录入系统。')) return;
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/confirm`, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert('成绩已确认！');
+                    loadExams();
+                    showSection('exam');
+                } else {
+                    alert('确认失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('确认失败');
+            }
+        }
+
+        function exportScores() {
+            if (!currentExam) return;
+            alert('导出功能开发中...');
+        }
+
+        // ========== 学情分析 ==========
+        async function loadAnalysisExamSelect() {
+            const res = await fetch(`${API}/api/exams`);
+            const data = await res.json();
+            
+            if (data.success) {
+                const completedExams = (data.exams || []).filter(e => e.status === 'completed');
+                document.getElementById('analysis-exam-select').innerHTML = 
+                    '<option value="">请选择考试</option>' + 
+                    completedExams.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+            }
+        }
+
+        async function loadAnalysisData() {
+            const examId = document.getElementById('analysis-exam-select').value;
+            
+            if (!examId) {
+                document.getElementById('analysis-content').classList.add('hidden');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${examId}/analysis`);
+                const data = await res.json();
+                
+                if (data.success) {
+                    renderAnalysisContent(data);
+                }
+            } catch (e) {
+                console.error('加载分析数据失败:', e);
+            }
+        }
+
+        function renderAnalysisContent(data) {
+            document.getElementById('analysis-content').classList.remove('hidden');
+            
+            const stats = data.statistics || {};
+            document.getElementById('analysis-avg').textContent = (stats.average_score || 0).toFixed(1);
+            document.getElementById('analysis-pass').textContent = `${(stats.pass_rate || 0).toFixed(1)}%`;
+            document.getElementById('analysis-highest').textContent = stats.highest_score || 0;
+            document.getElementById('analysis-lowest').textContent = stats.lowest_score || 0;
+            
+            // 题目错题率
+            const qStats = document.getElementById('question-stats');
+            qStats.innerHTML = (data.question_stats || []).map(q => `
+                <div class="flex items-center bg-gray-50 rounded px-3 py-2">
+                    <span class="w-16">第${q.number}题</span>
+                    <div class="flex-1 mx-4">
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="bg-red-500 h-2 rounded-full" style="width: ${q.error_rate}%"></div>
+                        </div>
+                    </div>
+                    <span class="text-sm text-red-600">${q.error_rate.toFixed(1)}%</span>
+                </div>
+            `).join('') || '<p class="text-gray-500">暂无数据</p>';
+            
+            // 知识点掌握
+            const kStats = document.getElementById('knowledge-stats');
+            const sortedKP = Object.entries(data.knowledge_stats || {})
+                .sort((a, b) => a[1].mastery_rate - b[1].mastery_rate);
+            
+            kStats.innerHTML = sortedKP.map(([kp, stats]) => `
+                <div class="flex items-center bg-gray-50 rounded px-3 py-2">
+                    <span class="w-32 truncate">${kp}</span>
+                    <div class="flex-1 mx-4">
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div class="h-2 rounded-full ${stats.mastery_rate >= 70 ? 'bg-green-500' : stats.mastery_rate >= 50 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${stats.mastery_rate}%"></div>
+                        </div>
+                    </div>
+                    <span class="text-sm ${stats.mastery_rate >= 70 ? 'text-green-600' : stats.mastery_rate >= 50 ? 'text-yellow-600' : 'text-red-600'}">${stats.mastery_rate.toFixed(1)}%</span>
+                </div>
+            `).join('') || '<p class="text-gray-500">暂无数据</p>';
+        }
+    </script>
+</body>
+</html>
