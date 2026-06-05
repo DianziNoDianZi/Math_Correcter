@@ -513,5 +513,231 @@ def export_library_statistics() -> Dict[str, Any]:
         ]
     }
 
+# 错题整理功能
+def get_all_wrong_questions(paper_ids: Optional[List[str]] = None, 
+                            grade: Optional[str] = None) -> List[Dict[str, Any]]:
+    """获取所有错题"""
+    metadata = load_library_metadata()
+    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
+    
+    if grade:
+        target_papers = [p['id'] for p in metadata['papers'] if p.get('grade') == grade]
+    
+    all_wrong_questions = []
+    
+    for paper_id in target_papers:
+        analysis = load_paper_analysis(paper_id)
+        if analysis and analysis.get('questions'):
+            paper_name = analysis.get('name', '未知试卷')
+            for i, question in enumerate(analysis['questions']):
+                if not question.get('is_correct', True):
+                    question_copy = question.copy()
+                    question_copy['paper_id'] = paper_id
+                    question_copy['paper_name'] = paper_name
+                    question_copy['question_index'] = i
+                    all_wrong_questions.append(question_copy)
+    
+    return all_wrong_questions
+
+def get_wrong_questions_by_knowledge_point(knowledge_point: str) -> List[Dict[str, Any]]:
+    """按知识点获取错题"""
+    wrong_questions = get_all_wrong_questions()
+    return [q for q in wrong_questions if knowledge_point in q.get('knowledge_points', [])]
+
+# 搜索和筛选功能
+def search_questions(keyword: str, 
+                     paper_ids: Optional[List[str]] = None,
+                     knowledge_point: Optional[str] = None,
+                     question_type: Optional[str] = None,
+                     is_correct: Optional[bool] = None) -> List[Dict[str, Any]]:
+    """搜索题目"""
+    metadata = load_library_metadata()
+    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
+    
+    all_questions = []
+    keyword_lower = keyword.lower()
+    
+    for paper_id in target_papers:
+        analysis = load_paper_analysis(paper_id)
+        if analysis and analysis.get('questions'):
+            paper_name = analysis.get('name', '未知试卷')
+            for i, question in enumerate(analysis['questions']):
+                question_copy = question.copy()
+                question_copy['paper_id'] = paper_id
+                question_copy['paper_name'] = paper_name
+                question_copy['question_index'] = i
+                
+                # 检查搜索条件
+                match = True
+                
+                if keyword:
+                    content = question_copy.get('content', '')
+                    if keyword_lower not in content.lower():
+                        match = False
+                
+                if knowledge_point and knowledge_point not in question_copy.get('knowledge_points', []):
+                    match = False
+                
+                if question_type and question_type != question_copy.get('question_type'):
+                    match = False
+                
+                if is_correct is not None and is_correct != question_copy.get('is_correct'):
+                    match = False
+                
+                if match:
+                    all_questions.append(question_copy)
+    
+    return all_questions
+
+def get_all_knowledge_points(paper_ids: Optional[List[str]] = None) -> List[str]:
+    """获取所有出现过的知识点"""
+    metadata = load_library_metadata()
+    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
+    
+    knowledge_points = set()
+    
+    for paper_id in target_papers:
+        analysis = load_paper_analysis(paper_id)
+        if analysis and analysis.get('knowledge_points'):
+            for kp in analysis['knowledge_points']:
+                knowledge_points.add(kp['knowledge_point'])
+    
+    return sorted(list(knowledge_points))
+
+# 标签系统
+def update_paper_tags(paper_id: str, tags: List[str]) -> bool:
+    """更新试卷标签"""
+    metadata = load_library_metadata()
+    
+    found = False
+    for paper in metadata['papers']:
+        if paper['id'] == paper_id:
+            paper['tags'] = tags
+            found = True
+            break
+    
+    if found:
+        save_library_metadata(metadata)
+        return True
+    return False
+
+def get_papers_by_tag(tag: str) -> List[Dict[str, Any]]:
+    """按标签获取试卷"""
+    metadata = load_library_metadata()
+    return [p for p in metadata['papers'] if tag in p.get('tags', [])]
+
+def get_all_tags() -> List[str]:
+    """获取所有标签"""
+    metadata = load_library_metadata()
+    all_tags = set()
+    for paper in metadata['papers']:
+        all_tags.update(paper.get('tags', []))
+    return sorted(list(all_tags))
+
+# 导出功能
+def export_questions_to_json(questions: List[Dict[str, Any]], paper_name: str = "导出题目") -> str:
+    """导出题目为JSON格式"""
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{paper_name}_{timestamp}.json"
+    filepath = os.path.join(TEST_LIBRARY_DIR, 'exports', filename)
+    
+    export_data = {
+        'paper_name': paper_name,
+        'export_time': datetime.now().isoformat(),
+        'total_questions': len(questions),
+        'questions': questions
+    }
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(export_data, f, ensure_ascii=False, indent=2)
+    
+    return filename
+
+def generate_wrong_questions_practice(paper_ids: Optional[List[str]] = None, 
+                                     max_questions: int = 50) -> Dict[str, Any]:
+    """生成错题练习"""
+    wrong_questions = get_all_wrong_questions(paper_ids)
+    
+    # 随机选取一些题目（如果超过 max_questions）
+    import random
+    if len(wrong_questions) > max_questions:
+        selected_questions = random.sample(wrong_questions, max_questions)
+    else:
+        selected_questions = wrong_questions
+    
+    # 按知识点分组
+    by_knowledge = {}
+    for q in selected_questions:
+        kps = q.get('knowledge_points', ['未知知识点'])
+        for kp in kps:
+            if kp not in by_knowledge:
+                by_knowledge[kp] = []
+            by_knowledge[kp].append(q)
+    
+    return {
+        'total_wrong': len(wrong_questions),
+        'selected_count': len(selected_questions),
+        'by_knowledge_point': by_knowledge,
+        'questions': selected_questions
+    }
+
+# 知识点关系图谱
+def build_knowledge_point_graph() -> Dict[str, Any]:
+    """构建知识点关联图谱"""
+    metadata = load_library_metadata()
+    all_papers = metadata['papers']
+    
+    # 知识点共同出现频率
+    cooccurrence = Counter()
+    kp_to_papers = {}
+    
+    for paper_id in [p['id'] for p in all_papers]:
+        analysis = load_paper_analysis(paper_id)
+        if not analysis or not analysis.get('questions'):
+            continue
+            
+        for question in analysis['questions']:
+            kps = sorted(question.get('knowledge_points', []))
+            for i in range(len(kps)):
+                for j in range(i+1, len(kps)):
+                    key = tuple(sorted([kps[i], kps[j]]))
+                    cooccurrence[key] += 1
+    
+    # 获取所有知识点的统计
+    all_knowledge_points = get_all_knowledge_points()
+    kp_stats = []
+    
+    for kp in all_knowledge_points:
+        all_questions_with_kp = []
+        for paper_id in [p['id'] for p in all_papers]:
+            analysis = load_paper_analysis(paper_id)
+            if analysis:
+                for q in analysis.get('questions', []):
+                    if kp in q.get('knowledge_points', []):
+                        all_questions_with_kp.append(q)
+        
+        total = len(all_questions_with_kp)
+        correct = sum(1 for q in all_questions_with_kp if q.get('is_correct', False))
+        mastery_rate = (correct / total * 100) if total > 0 else 0
+        
+        kp_stats.append({
+            'name': kp,
+            'appearance_count': total,
+            'mastery_rate': mastery_rate
+        })
+    
+    # 构建节点和边
+    nodes = [{'id': kp['name'], 'masteryRate': kp['mastery_rate'], 
+             'count': kp['appearance_count']} for kp in kp_stats]
+    edges = [{'source': pair[0], 'target': pair[1], 'weight': count} 
+             for pair, count in cooccurrence.most_common()]
+    
+    return {
+        'nodes': nodes,
+        'edges': edges,
+        'statistics': kp_stats
+    }
+
 # 初始化
 init_library_directories()

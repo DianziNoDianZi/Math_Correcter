@@ -25,18 +25,27 @@
         <h1 class="text-3xl font-bold text-center text-indigo-600 mb-8">📚 试卷库管理</h1>
         
         <!-- 导航标签 -->
-        <div class="flex mb-8 bg-white rounded-lg shadow p-2 gap-2">
-            <button onclick="showTab('upload')" id="tab-upload" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700">
+        <div class="flex flex-wrap mb-8 bg-white rounded-lg shadow p-2 gap-2">
+            <button onclick="showTab('upload')" id="tab-upload" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700">
                 📤 批量上传
             </button>
-            <button onclick="showTab('papers')" id="tab-papers" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+            <button onclick="showTab('papers')" id="tab-papers" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
                 📋 试卷列表
             </button>
-            <button onclick="showTab('statistics')" id="tab-statistics" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+            <button onclick="showTab('statistics')" id="tab-statistics" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
                 📊 统计分析
             </button>
-            <button onclick="showTab('optimize')" id="tab-optimize" class="flex-1 px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+            <button onclick="showTab('optimize')" id="tab-optimize" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
                 🎯 提示词优化
+            </button>
+            <button onclick="showTab('wrong')" id="tab-wrong" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                ❌ 错题整理
+            </button>
+            <button onclick="showTab('search')" id="tab-search" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                🔍 搜索题目
+            </button>
+            <button onclick="showTab('graph')" id="tab-graph" class="flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100">
+                🕸️ 知识图谱
             </button>
         </div>
         
@@ -158,6 +167,97 @@
             
             <div id="optimization-result">
                 <!-- 优化结果会在这里显示 -->
+            </div>
+        </div>
+        
+        <!-- 错题整理标签页 -->
+        <div id="panel-wrong" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">❌ 错题整理</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">选择试卷</label>
+                    <select id="wrong-paper-select" class="shadow border rounded w-full py-2 px-3">
+                        <option value="all">全部试卷</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">按年级筛选</label>
+                    <select id="wrong-grade-select" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">全部年级</option>
+                        <option value="1-2">小学1-2年级</option>
+                        <option value="3-4">小学3-4年级</option>
+                        <option value="5-6">小学5-6年级</option>
+                        <option value="7-9">初中</option>
+                        <option value="10-12">高中</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="flex gap-4 mb-6">
+                <button onclick="loadWrongQuestions()" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-6 rounded">
+                    加载错题
+                </button>
+                <button onclick="generatePractice()" class="bg-purple-500 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded">
+                    生成错题练习
+                </button>
+            </div>
+            
+            <div id="wrong-questions-container">
+                <p class="text-gray-500 text-center py-8">点击"加载错题"查看整理的错题</p>
+            </div>
+        </div>
+        
+        <!-- 搜索题目标签页 -->
+        <div id="panel-search" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">🔍 搜索题目</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div class="lg:col-span-2">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">关键词</label>
+                    <input type="text" id="search-keyword" placeholder="输入搜索关键词" class="shadow border rounded w-full py-2 px-3">
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">知识点</label>
+                    <select id="search-knowledge" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">全部</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-gray-700 text-sm font-bold mb-2">正确/错误</label>
+                    <select id="search-correctness" class="shadow border rounded w-full py-2 px-3">
+                        <option value="">全部</option>
+                        <option value="true">正确</option>
+                        <option value="false">错误</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button onclick="searchQuestions()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded mb-6">
+                搜索
+            </button>
+            
+            <div id="search-results-container">
+                <p class="text-gray-500 text-center py-8">输入关键词并点击"搜索"查找题目</p>
+            </div>
+        </div>
+        
+        <!-- 知识图谱标签页 -->
+        <div id="panel-graph" class="bg-white rounded-lg shadow p-6 hidden">
+            <h2 class="text-xl font-semibold mb-6">🕸️ 知识点关联图谱</h2>
+            
+            <div class="mb-6">
+                <button onclick="loadKnowledgeGraph()" class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded">
+                    加载图谱
+                </button>
+            </div>
+            
+            <div id="knowledge-graph-container">
+                <p class="text-gray-500 text-center py-8">点击"加载图谱"查看知识点关联</p>
+            </div>
+            
+            <div id="knowledge-graph-stats" class="mt-6">
+                <!-- 知识图谱统计 -->
             </div>
         </div>
         
@@ -691,6 +791,332 @@
                 closePaperModal();
             }
         });
+        
+        // --- 错题整理功能 ---
+        async function loadWrongQuestions() {
+            try {
+                const paperSelect = document.getElementById('wrong-paper-select');
+                const gradeSelect = document.getElementById('wrong-grade-select');
+                
+                const data = {};
+                if (paperSelect.value !== 'all') {
+                    data.paper_ids = [paperSelect.value];
+                }
+                if (gradeSelect.value) {
+                    data.grade = gradeSelect.value;
+                }
+                
+                const response = await fetch(`${SERVER_URL}/api/library/wrong_questions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderWrongQuestions(result.wrong_questions);
+                }
+            } catch (e) {
+                console.error('加载错题失败：', e);
+            }
+        }
+        
+        function renderWrongQuestions(questions) {
+            const container = document.getElementById('wrong-questions-container');
+            
+            if (!questions || questions.length === 0) {
+                container.innerHTML = '<p class="text-green-600 text-center py-8">太棒了！没有错题！</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="mb-4">
+                    <p class="text-lg font-semibold">共找到 ${questions.length} 道错题</p>
+                </div>
+                <div class="space-y-4">
+                    ${questions.map((q, i) => `
+                        <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-medium">第 ${i + 1} 题 (${q.paper_name})</span>
+                                <span class="text-sm text-red-600">错误</span>
+                            </div>
+                            <p class="text-gray-700 mb-2">${q.content}</p>
+                            <div class="flex flex-wrap gap-1 mb-2">
+                                ${(q.knowledge_points || []).map(kp => 
+                                    `<span class="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">${kp}</span>`
+                                ).join('')}
+                            </div>
+                            ${q.error_type ? `<p class="text-sm text-gray-600">错误类型：${q.error_type}</p>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        async function generatePractice() {
+            try {
+                const paperSelect = document.getElementById('wrong-paper-select');
+                
+                const data = {};
+                if (paperSelect.value !== 'all') {
+                    data.paper_ids = [paperSelect.value];
+                }
+                data.max_questions = 50;
+                
+                const response = await fetch(`${SERVER_URL}/api/library/generate_practice`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderPractice(result.practice);
+                }
+            } catch (e) {
+                console.error('生成练习失败：', e);
+            }
+        }
+        
+        function renderPractice(practice) {
+            const container = document.getElementById('wrong-questions-container');
+            
+            container.innerHTML = `
+                <div class="mb-4">
+                    <p class="text-lg font-semibold">
+                        共 ${practice.total_wrong} 道错题，已挑选 ${practice.selected_count} 道
+                    </p>
+                </div>
+                
+                ${Object.entries(practice.by_knowledge_point || {}).map(([kp, qs]) => `
+                    <div class="mb-6">
+                        <h3 class="font-semibold mb-3">📚 ${kp} (${qs.length} 道)</h3>
+                        <div class="space-y-3">
+                            ${qs.map((q, i) => `
+                                <div class="border rounded-lg p-4 bg-gray-50">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="font-medium">第 ${i + 1} 题 (${q.paper_name})</span>
+                                        <span class="text-sm text-red-600">错误</span>
+                                    </div>
+                                    <p class="text-gray-700">${q.content}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        // --- 搜索题目功能 ---
+        async function searchQuestions() {
+            try {
+                const keyword = document.getElementById('search-keyword').value;
+                const knowledge = document.getElementById('search-knowledge').value;
+                const correctness = document.getElementById('search-correctness').value;
+                
+                const data = {
+                    keyword: keyword
+                };
+                
+                if (knowledge) {
+                    data.knowledge_point = knowledge;
+                }
+                
+                if (correctness) {
+                    data.is_correct = correctness === 'true';
+                }
+                
+                const response = await fetch(`${SERVER_URL}/api/library/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderSearchResults(result.questions);
+                }
+            } catch (e) {
+                console.error('搜索失败：', e);
+            }
+        }
+        
+        function renderSearchResults(questions) {
+            const container = document.getElementById('search-results-container');
+            
+            if (!questions || questions.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-8">没有找到匹配的题目</p>';
+                return;
+            }
+            
+            container.innerHTML = `
+                <div class="mb-4">
+                    <p class="text-lg font-semibold">找到 ${questions.length} 道题目</p>
+                </div>
+                <div class="space-y-4">
+                    ${questions.map((q, i) => `
+                        <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-medium">第 ${i + 1} 题 (${q.paper_name})</span>
+                                <span class="text-sm ${q.is_correct ? 'text-green-600' : 'text-red-600'}">
+                                    ${q.is_correct ? '正确' : '错误'}
+                                </span>
+                            </div>
+                            <p class="text-gray-700 mb-2">${q.content}</p>
+                            <div class="flex flex-wrap gap-1">
+                                ${(q.knowledge_points || []).map(kp => 
+                                    `<span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">${kp}</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        // --- 知识点图谱功能 ---
+        async function loadKnowledgeGraph() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/knowledge_graph`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderKnowledgeGraph(result.graph);
+                }
+            } catch (e) {
+                console.error('加载知识图谱失败：', e);
+            }
+        }
+        
+        function renderKnowledgeGraph(graph) {
+            const container = document.getElementById('knowledge-graph-container');
+            const statsContainer = document.getElementById('knowledge-graph-stats');
+            
+            // 渲染统计
+            statsContainer.innerHTML = `
+                <h3 class="font-semibold mb-3">📊 知识点统计</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                    ${(graph.statistics || []).map(stat => `
+                        <div class="border rounded-lg p-3">
+                            <div class="font-medium">${stat.name}</div>
+                            <div class="text-sm text-gray-600">
+                                出现 ${stat.appearance_count} 次，
+                                掌握率 
+                                <span class="${stat.mastery_rate >= 70 ? 'text-green-600' : stat.mastery_rate >= 40 ? 'text-yellow-600' : 'text-red-600'}">
+                                    ${stat.mastery_rate.toFixed(1)}%
+                                </span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            // 渲染简单的可视化（因为没有专门的图谱库，我们做一个节点列表）
+            container.innerHTML = `
+                <h3 class="font-semibold mb-3">🔗 知识点关联</h3>
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <p class="text-gray-700 mb-4">
+                        共 ${graph.nodes.length} 个知识点，${graph.edges.length} 个关联
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        ${(graph.edges || []).slice(0, 20).map(edge => `
+                            <div class="border rounded p-2 bg-white flex items-center gap-2">
+                                <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">${edge.source}</span>
+                                <span class="text-gray-500">→</span>
+                                <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-sm">${edge.target}</span>
+                                <span class="text-xs text-gray-500 ml-auto">共 ${edge.weight} 次</span>
+                            </div>
+                        `).join('')}
+                        ${graph.edges.length > 20 ? `<p class="text-gray-500 text-center col-span-2">... 还有 ${graph.edges.length - 20} 个关联</p>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // --- 更新标签页加载 ---
+        const originalShowTab = showTab;
+        
+        function showTab(tabName) {
+            // 隐藏所有面板
+            document.getElementById('panel-upload').classList.add('hidden');
+            document.getElementById('panel-papers').classList.add('hidden');
+            document.getElementById('panel-statistics').classList.add('hidden');
+            document.getElementById('panel-optimize').classList.add('hidden');
+            document.getElementById('panel-wrong').classList.add('hidden');
+            document.getElementById('panel-search').classList.add('hidden');
+            document.getElementById('panel-graph').classList.add('hidden');
+            
+            // 重置标签样式
+            const allTabs = ['upload', 'papers', 'statistics', 'optimize', 'wrong', 'search', 'graph'];
+            allTabs.forEach(t => {
+                const tab = document.getElementById(`tab-${t}`);
+                if (tab) {
+                    tab.className = 'flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all hover:bg-gray-100';
+                }
+            });
+            
+            // 显示选中面板
+            document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+            const activeTab = document.getElementById(`tab-${tabName}`);
+            if (activeTab) {
+                activeTab.className = 'flex-1 min-w-[100px] px-4 py-2 rounded-lg font-medium transition-all bg-blue-100 text-blue-700';
+            }
+            
+            // 根据不同标签页加载数据
+            if (tabName === 'statistics') {
+                loadStatistics();
+            } else if (tabName === 'wrong') {
+                loadWrongQuestions();
+            } else if (tabName === 'search') {
+                loadKnowledgePointsForSearch();
+            } else if (tabName === 'papers' || tabName === 'optimize') {
+                loadLibraryStatus();
+            }
+        }
+        
+        async function loadKnowledgePointsForSearch() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/knowledge_points`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const select = document.getElementById('search-knowledge');
+                    select.innerHTML = '<option value="">全部</option>' + 
+                        result.knowledge_points.map(kp => `<option value="${kp}">${kp}</option>`).join('');
+                }
+            } catch (e) {
+                console.error('加载知识点列表失败：', e);
+            }
+        }
+        
+        // 修改 loadLibraryStatus 以更新所有相关选择框
+        const originalLoadLibraryStatus = loadLibraryStatus;
+        
+        async function loadLibraryStatus() {
+            try {
+                const response = await fetch(`${SERVER_URL}/api/library/status`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderPapersList(result.papers);
+                    updateOptimizeOptions(result.papers);
+                    updateWrongPaperOptions(result.papers);
+                }
+            } catch (e) {
+                console.error('加载失败：', e);
+                document.getElementById('papers-container').innerHTML = 
+                    '<p class="text-red-500 text-center py-8">加载失败，请刷新重试</p>';
+            }
+        }
+        
+        function updateWrongPaperOptions(papers) {
+            const select = document.getElementById('wrong-paper-select');
+            select.innerHTML = '<option value="all">全部试卷</option>' + 
+                papers.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        }
     </script>
 </body>
 </html>

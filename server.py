@@ -1336,6 +1336,151 @@ def get_library_statistics():
         logger.error(f'获取统计信息失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# --- 新增试卷库功能 API ---
+
+@app.route('/api/library/wrong_questions', methods=['POST'])
+@rate_limit
+@track_request_stats
+def get_wrong_questions():
+    """获取错题"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        grade = data.get('grade')
+        
+        wrong_questions = test_library.get_all_wrong_questions(paper_ids, grade)
+        return jsonify({
+            'success': True,
+            'wrong_questions': wrong_questions,
+            'total_count': len(wrong_questions)
+        })
+    except Exception as e:
+        logger.error(f'获取错题失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/search', methods=['POST'])
+@rate_limit
+@track_request_stats
+def search_questions_api():
+    """搜索题目"""
+    try:
+        data = request.get_json() or {}
+        keyword = data.get('keyword', '')
+        paper_ids = data.get('paper_ids')
+        knowledge_point = data.get('knowledge_point')
+        question_type = data.get('question_type')
+        is_correct = data.get('is_correct')
+        
+        questions = test_library.search_questions(
+            keyword, paper_ids, knowledge_point, question_type, is_correct
+        )
+        return jsonify({
+            'success': True,
+            'questions': questions,
+            'total_count': len(questions)
+        })
+    except Exception as e:
+        logger.error(f'搜索题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/knowledge_points', methods=['GET'])
+@track_request_stats
+def get_knowledge_points_list():
+    """获取所有知识点列表"""
+    try:
+        knowledge_points = test_library.get_all_knowledge_points()
+        return jsonify({
+            'success': True,
+            'knowledge_points': knowledge_points
+        })
+    except Exception as e:
+        logger.error(f'获取知识点列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/knowledge_graph', methods=['GET'])
+@track_request_stats
+def get_knowledge_graph():
+    """获取知识点关联图谱"""
+    try:
+        graph_data = test_library.build_knowledge_point_graph()
+        return jsonify({
+            'success': True,
+            'graph': graph_data
+        })
+    except Exception as e:
+        logger.error(f'获取知识点图谱失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/tags', methods=['GET'])
+@track_request_stats
+def get_all_tags():
+    """获取所有标签"""
+    try:
+        tags = test_library.get_all_tags()
+        return jsonify({'success': True, 'tags': tags})
+    except Exception as e:
+        logger.error(f'获取标签失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/<paper_id>/tags', methods=['POST'])
+@admin_required
+def update_paper_tags_api(paper_id):
+    """更新试卷标签"""
+    try:
+        data = request.get_json() or {}
+        tags = data.get('tags', [])
+        
+        success = test_library.update_paper_tags(paper_id, tags)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '试卷未找到'}), 404
+    except Exception as e:
+        logger.error(f'更新标签失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/paper/tags/<tag>', methods=['GET'])
+@track_request_stats
+def get_papers_by_tag(tag):
+    """按标签获取试卷"""
+    try:
+        papers = test_library.get_papers_by_tag(tag)
+        return jsonify({'success': True, 'papers': papers})
+    except Exception as e:
+        logger.error(f'按标签获取试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/generate_practice', methods=['POST'])
+@rate_limit
+@track_request_stats
+def generate_practice():
+    """生成错题练习"""
+    try:
+        data = request.get_json() or {}
+        paper_ids = data.get('paper_ids')
+        max_questions = data.get('max_questions', 50)
+        
+        practice_data = test_library.generate_wrong_questions_practice(paper_ids, max_questions)
+        return jsonify({'success': True, 'practice': practice_data})
+    except Exception as e:
+        logger.error(f'生成练习失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/library/export', methods=['POST'])
+@admin_required
+def export_questions():
+    """导出题目"""
+    try:
+        data = request.get_json() or {}
+        questions = data.get('questions', [])
+        paper_name = data.get('paper_name', '导出题目')
+        
+        filename = test_library.export_questions_to_json(questions, paper_name)
+        return jsonify({'success': True, 'filename': filename})
+    except Exception as e:
+        logger.error(f'导出题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
 _EXECUTOR = None
