@@ -6,12 +6,15 @@ import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
+from collections import deque
+import json
 
 import requests
 from flask import Flask, jsonify, request, render_template, flash, redirect, url_for, Response, session, g
 from flask import send_from_directory
+from flask_cors import CORS
 
 import processor
 from config import get_config, ensure_defaults, save_config, get_models_dict
@@ -21,6 +24,20 @@ from processor import _parse_pending_filename, call_llm_api, generate_explanatio
 # IP封禁列表和请求统计
 ipRequests = {}  # {ip: count}
 bannedIPs = set()
+
+# 速率限制器
+rateLimitStore = {}  # {ip: deque(timestamps)}
+
+# 统计数据
+stats = {
+    'total_requests': 0,
+    'total_uploads': 0,
+    'total_tasks_processed': 0,
+    'total_audio_generated': 0,
+    'start_time': datetime.now().isoformat(),
+    'failed_requests': 0,
+    'processing_times': []
+}
 
 # 任务模式存储：{query_code: mode}
 task_modes = {}
@@ -32,12 +49,68 @@ ADMIN_USER = os.environ.get('ADMIN_USER', 'admin')
 ADMIN_PASS = os.environ.get('ADMIN_PASS', 'changeme')
 SECRET_KEY = os.environ.get('SECRET_KEY', None)
 
+# 配置
+CORS_ENABLED = os.environ.get('CORS_ENABLED', 'false').lower() == 'true'
+RATE_LIMIT_ENABLED = os.environ.get('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+RATE_LIMIT_WINDOW = int(os.environ.get('RATE_LIMIT_WINDOW', '60'))  # 秒
+RATE_LIMIT_MAX = int(os.environ.get('RATE_LIMIT_MAX', '30'))  # 每个窗口最大请求数
+TASK_RETENTION_DAYS = int(os.environ.get('TASK_RETENTION_DAYS', '7'))  # 任务保留天数
+
 # 警告用户修改默认密码
 if ADMIN_USER == 'admin' or ADMIN_PASS == 'changeme':
     print('WARNING: Using default admin credentials! Please set ADMIN_USER and ADMIN_PASS environment variables!')
 if SECRET_KEY is None:
     print('WARNING: Using default secret key! Please set SECRET_KEY environment variable!')
     SECRET_KEY = 'dev-secret-key-change-in-production'
+
+# 装饰器：统计请求
+def track_request_stats(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        global stats
+        stats['total_requests'] += 1
+        start_time = time.time()
+        try:
+            result = f(*args, **kwargs)
+            return result
+        except Exception as e:
+            stats['failed_requests'] += 1
+            raise e
+        finally:
+            processing_time = time.time() - start_time
+            stats['processing_times'].append(processing_time)
+            if len(stats['processing_times']) > 1000:
+                stats['processing_times'] = stats['processing_times'][-1000:]
+    return wrapper
+
+# 装饰器：速率限制
+def rate_limit(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not RATE_LIMIT_ENABLED:
+            return f(*args, **kwargs)
+            
+        client_ip = request.remote_addr
+        now = time.time()
+        
+        if client_ip not in rateLimitStore:
+            rateLimitStore[client_ip] = deque()
+        
+        # 清理过期的请求记录
+        while rateLimitStore[client_ip] and now - rateLimitStore[client_ip][0] > RATE_LIMIT_WINDOW:
+            rateLimitStore[client_ip].popleft()
+        
+        # 检查是否超过限制
+        if len(rateLimitStore[client_ip]) >= RATE_LIMIT_MAX:
+            return jsonify({
+                'error': 'Too many requests',
+                'retry_after': RATE_LIMIT_WINDOW - (now - rateLimitStore[client_ip][0])
+            }), 429
+        
+        # 记录当前请求
+        rateLimitStore[client_ip].append(now)
+        return f(*args, **kwargs)
+    return wrapper
 
 def admin_required(f):
     @wraps(f)
@@ -96,6 +169,11 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.secret_key = SECRET_KEY
 
+# 启用CORS
+if CORS_ENABLED:
+    CORS(app)
+    logger.info('CORS enabled')
+
 # 添加安全头
 @app.after_request
 def add_security_headers(response):
@@ -105,6 +183,54 @@ def add_security_headers(response):
     return response
 
 SERVER_START_TIME = time.time()
+
+# 健康检查端点
+@app.route('/health', methods=['GET'])
+@app.route('/api/health', methods=['GET'])
+@track_request_stats
+def health_check():
+    """健康检查端点，用于监控服务状态"""
+    try:
+        # 检查目录是否可写
+        dir_check = os.access(UPLOAD_FOLDER, os.W_OK) and \
+                   os.access(PENDING_DIR, os.W_OK) and \
+                   os.access(PROCESSING_DIR, os.W_OK) and \
+                   os.access(RESULTS_DIR, os.W_OK)
+        
+        # 检查配置
+        config = get_config()
+        config_check = config is not None
+        
+        uptime_seconds = time.time() - SERVER_START_TIME
+        
+        # 统计当前状态
+        pending_count = len([f for f in os.listdir(PENDING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+        processing_count = len([f for f in os.listdir(PROCESSING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+        
+        return jsonify({
+            'status': 'healthy' if dir_check and config_check else 'degraded',
+            'uptime_seconds': uptime_seconds,
+            'uptime_formatted': str(timedelta(seconds=int(uptime_seconds))),
+            'directories': {
+                'upload': {'path': UPLOAD_FOLDER, 'writable': os.access(UPLOAD_FOLDER, os.W_OK)},
+                'pending': {'path': PENDING_DIR, 'writable': os.access(PENDING_DIR, os.W_OK)},
+                'processing': {'path': PROCESSING_DIR, 'writable': os.access(PROCESSING_DIR, os.W_OK)},
+                'results': {'path': RESULTS_DIR, 'writable': os.access(RESULTS_DIR, os.W_OK)}
+            },
+            'queue': {
+                'pending': pending_count,
+                'processing': processing_count
+            },
+            'config': config_check,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f'Health check failed: {e}')
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 # 记录跳转目标页面
 @app.route('/admin/login', methods=['GET','POST'])
@@ -142,6 +268,8 @@ def index():
     return render_template('index.html')
 
 @app.route('/upload_image', methods=['POST'])
+@rate_limit
+@track_request_stats
 def upload_image():
     """接收客户端上传的图片"""
     try:
@@ -198,6 +326,10 @@ def upload_image():
         
         with open(filepath, 'wb') as f:
             f.write(decoded)
+        
+        # 更新统计
+        global stats
+        stats['total_uploads'] += 1
 
         logger.info(f"图片已上传，生成查询码: {query_code}，模式: {mode}，年级: {grade}")
         return jsonify({'query_code': query_code}), 200
@@ -861,9 +993,229 @@ def chat_completions():
         logger.error(f"处理代理请求时发生错误: {str(e)}")
         return jsonify({'error': f'Proxy error: {str(e)}'}), 500
 
+# --- 公共统计API ---
+@app.route('/api/stats', methods=['GET'])
+@rate_limit
+@track_request_stats
+def get_public_stats():
+    """获取公共统计信息（无需登录）"""
+    uptime_seconds = time.time() - SERVER_START_TIME
+    
+    # 计算平均处理时间
+    avg_processing_time = 0
+    if stats['processing_times']:
+        avg_processing_time = sum(stats['processing_times']) / len(stats['processing_times'])
+    
+    return jsonify({
+        'uptime_seconds': uptime_seconds,
+        'uptime_formatted': str(timedelta(seconds=int(uptime_seconds))),
+        'total_requests': stats['total_requests'],
+        'success_rate': max(0, 100 - (stats['failed_requests'] / max(1, stats['total_requests']) * 100)) if stats['total_requests'] > 0 else 100,
+        'avg_processing_time_ms': avg_processing_time * 1000,
+        'timestamp': datetime.now().isoformat()
+    })
+
+# --- 任务取消API ---
+@app.route('/api/task/cancel', methods=['POST'])
+@rate_limit
+@track_request_stats
+def cancel_task():
+    """取消待处理的任务"""
+    try:
+        data = request.get_json()
+        if not data or 'query_code' not in data:
+            return jsonify({'error': 'Invalid request format'}), 400
+        
+        query_code = data['query_code']
+        
+        # 验证查询码
+        if not isinstance(query_code, str) or not query_code or '..' in query_code:
+            return jsonify({'error': 'Invalid query code'}), 400
+        if len(query_code) > 64:
+            return jsonify({'error': 'Query code too long'}), 400
+        
+        # 查找任务文件
+        cancelled = False
+        
+        # 在待处理队列中查找
+        for fname in os.listdir(PENDING_DIR):
+            if query_code in fname and not fname.endswith('_mode.txt') and not fname.endswith('_grade.txt'):
+                filepath = os.path.join(PENDING_DIR, fname)
+                if os.path.isfile(filepath):
+                    # 同时删除模式和年级文件
+                    for suffix in ['_mode.txt', '_grade.txt']:
+                        sf = os.path.join(PENDING_DIR, f'{query_code}{suffix}')
+                        if os.path.exists(sf):
+                            os.remove(sf)
+                    os.remove(filepath)
+                    cancelled = True
+                    logger.info(f"任务 {query_code} 已从待处理队列中取消")
+        
+        if cancelled:
+            return jsonify({'status': 'cancelled', 'query_code': query_code})
+        
+        # 检查是否已经在处理中
+        for fname in os.listdir(PROCESSING_DIR):
+            if query_code in fname:
+                return jsonify({
+                    'error': 'Task is already processing and cannot be cancelled',
+                    'status': 'processing'
+                }), 400
+        
+        # 检查是否已经完成
+        for fname in os.listdir(RESULTS_DIR):
+            if query_code in fname and fname.endswith('.txt'):
+                return jsonify({
+                    'error': 'Task is already completed',
+                    'status': 'completed'
+                }), 400
+        
+        return jsonify({'error': 'Task not found'}), 404
+    except Exception as e:
+        logger.error(f"取消任务错误: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+# --- 任务清理函数 ---
+def cleanup_old_tasks():
+    """清理过期的任务文件"""
+    try:
+        cutoff_date = datetime.now() - timedelta(days=TASK_RETENTION_DAYS)
+        deleted_count = 0
+        
+        # 清理结果目录中的旧文件
+        for fname in os.listdir(RESULTS_DIR):
+            fpath = os.path.join(RESULTS_DIR, fname)
+            if os.path.isfile(fpath):
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                if file_mtime < cutoff_date:
+                    try:
+                        os.remove(fpath)
+                        deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"删除文件 {fpath} 失败: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"清理了 {deleted_count} 个过期任务文件")
+        
+        return deleted_count
+    except Exception as e:
+        logger.error(f"任务清理失败: {e}")
+        return 0
+
+# --- 管理员API：统计和清理 ---
+@app.route('/admin/api/stats', methods=['GET'])
+@admin_required
+def admin_stats():
+    """获取详细的统计信息（管理员）"""
+    global stats
+    
+    # 更新任务处理计数
+    result_files = [f for f in os.listdir(RESULTS_DIR) if f.endswith('.txt')]
+    audio_files = [f for f in os.listdir(RESULTS_DIR) if f.endswith('.wav')]
+    stats['total_tasks_processed'] = len(result_files)
+    stats['total_audio_generated'] = len(audio_files)
+    
+    # 计算平均处理时间
+    avg_processing_time = 0
+    if stats['processing_times']:
+        avg_processing_time = sum(stats['processing_times']) / len(stats['processing_times'])
+    
+    # 计算成功响应率
+    success_rate = 100
+    if stats['total_requests'] > 0:
+        success_rate = max(0, 100 - (stats['failed_requests'] / stats['total_requests'] * 100))
+    
+    # 统计各个队列的数量
+    pending_count = len([f for f in os.listdir(PENDING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+    processing_count = len([f for f in os.listdir(PROCESSING_DIR) if not f.endswith('_mode.txt') and not f.endswith('_grade.txt') and not f.startswith('.')])
+    
+    return jsonify({
+        'system': {
+            'start_time': stats['start_time'],
+            'uptime_seconds': time.time() - SERVER_START_TIME,
+            'uptime_formatted': str(timedelta(seconds=int(time.time() - SERVER_START_TIME)))
+        },
+        'requests': {
+            'total': stats['total_requests'],
+            'failed': stats['failed_requests'],
+            'success_rate': success_rate,
+            'avg_processing_time_ms': avg_processing_time * 1000
+        },
+        'tasks': {
+            'pending': pending_count,
+            'processing': processing_count,
+            'completed': len(result_files),
+            'audio_generated': len(audio_files)
+        },
+        'features': {
+            'cors_enabled': CORS_ENABLED,
+            'rate_limit_enabled': RATE_LIMIT_ENABLED,
+            'task_retention_days': TASK_RETENTION_DAYS
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/admin/api/cleanup', methods=['POST'])
+@admin_required
+def admin_cleanup():
+    """手动触发任务清理"""
+    try:
+        data = request.get_json() or {}
+        days = data.get('days', TASK_RETENTION_DAYS)
+        
+        if not isinstance(days, int) or days <= 0:
+            return jsonify({'error': 'Invalid days value'}), 400
+        
+        # 修改清理函数接受天数参数
+        cutoff_date = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        
+        # 清理结果目录中的旧文件
+        for fname in os.listdir(RESULTS_DIR):
+            fpath = os.path.join(RESULTS_DIR, fname)
+            if os.path.isfile(fpath):
+                file_mtime = datetime.fromtimestamp(os.path.getmtime(fpath))
+                if file_mtime < cutoff_date:
+                    try:
+                        os.remove(fpath)
+                        deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"删除文件 {fpath} 失败: {e}")
+        
+        if deleted_count > 0:
+            logger.info(f"清理了 {deleted_count} 个过期任务文件")
+        
+        return jsonify({
+            'status': 'success',
+            'deleted_count': deleted_count,
+            'cleanup_days': days
+        })
+    except Exception as e:
+        logger.error(f"管理员清理失败: {e}")
+        return jsonify({'error': 'Cleanup failed'}), 500
+
+# --- 配置管理API ---
+@app.route('/admin/api/config/reload', methods=['POST'])
+@admin_required
+def reload_config():
+    """重新加载配置文件"""
+    try:
+        global models_dict
+        models_dict = get_models_dict()  # 重新加载模型字典
+        logger.info("配置已重新加载")
+        return jsonify({
+            'status': 'success',
+            'models_count': len(models_dict),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"重新加载配置失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
 _EXECUTOR = None
+_CLEANUP_RUNNING = False
 
 def _init_scanner_once():
     global _SCANNER_INITIALIZED, _EXECUTOR
@@ -875,8 +1227,32 @@ def _init_scanner_once():
     logger.info("后台任务扫描已启动")
     _SCANNER_INITIALIZED = True
 
+# 启动后台任务清理（每天一次）
+def _start_cleanup_task():
+    """启动后台清理任务"""
+    def cleanup_loop():
+        global _CLEANUP_RUNNING
+        _CLEANUP_RUNNING = True
+        logger.info(f"任务清理任务已启动，保留天数: {TASK_RETENTION_DAYS}")
+        
+        while True:
+            try:
+                # 每天在固定时间清理（例如凌晨3点）
+                now = datetime.now()
+                # 简单的实现：每24小时清理一次
+                time.sleep(24 * 60 * 60)
+                cleanup_old_tasks()
+            except Exception as e:
+                logger.error(f"清理循环错误: {e}")
+                time.sleep(60)  # 出错后等待一分钟重试
+    
+    import threading
+    cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
+    cleanup_thread.start()
+
 if __name__ == '__main__':
     _init_scanner_once()
+    _start_cleanup_task()  # 启动清理任务
     logger.info("服务器启动，开始监听...")
 
     # 从环境变量获取端口，默认 8000
@@ -885,3 +1261,4 @@ if __name__ == '__main__':
 else:
     # 在非主模块运行时（如某些 WSGI 服务器），也尝试启动后台扫描以处理任务
     _init_scanner_once()
+    # _start_cleanup_task()  # 可选：在非主模块也启动清理任务
