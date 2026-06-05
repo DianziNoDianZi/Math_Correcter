@@ -1715,6 +1715,17 @@ def get_exams():
         from test_library import load_exams_metadata
         all_exams = load_exams_metadata().get('exams', [])
         
+        # 为每个考试添加班级名称
+        classes = test_library.get_all_classes()
+        class_map = {c['id']: c['name'] for c in classes}
+        
+        for exam in all_exams:
+            class_id = exam.get('class_id')
+            if class_id and class_id in class_map:
+                exam['class_name'] = class_map[class_id]
+            else:
+                exam['class_name'] = ''
+        
         return jsonify({'success': True, 'exams': all_exams})
     except Exception as e:
         logger.error(f'获取考试列表失败: {e}')
@@ -1727,7 +1738,19 @@ def create_exam():
     try:
         data = request.get_json() or {}
         
-        result = test_library.create_exam(data)
+        # 参数验证
+        name = data.get('name', '').strip()
+        class_id = data.get('class_id', '').strip()
+        
+        if not name:
+            return jsonify({'success': False, 'error': '考试名称不能为空'}), 400
+        
+        result = test_library.create_exam({
+            'name': name,
+            'class_id': class_id if class_id else None,
+            'total_score': data.get('max_score', 100),
+            'status': data.get('status', 'draft')
+        })
         return jsonify(result)
     except Exception as e:
         logger.error(f'创建考试失败: {e}')
@@ -1740,7 +1763,22 @@ def add_exam_score(exam_id):
     try:
         data = request.get_json() or {}
         
-        result = test_library.add_exam_score(exam_id, data)
+        # 参数验证
+        student_number = data.get('student_number')
+        if not student_number:
+            return jsonify({'success': False, 'error': '学号不能为空'}), 400
+        
+        score = data.get('total_score')
+        if score is None:
+            return jsonify({'success': False, 'error': '分数不能为空'}), 400
+        
+        result = test_library.add_exam_score(exam_id, {
+            'student_number': student_number,
+            'student_name': data.get('student_name', '未知'),
+            'total_score': float(score),
+            'max_score': float(data.get('max_score', 100)),
+            'accuracy': float(data.get('accuracy', score / data.get('max_score', 100)))
+        })
         return jsonify(result)
     except Exception as e:
         logger.error(f'添加成绩失败: {e}')
