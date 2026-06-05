@@ -595,19 +595,37 @@ def auto_grade_objective_questions(questions: List[Dict[str, Any]]) -> Dict[str,
         'accuracy': (correct_count / len(graded_questions) * 100) if graded_questions else 0
     }
 
+def detect_handwritten_score(image_path: str) -> Dict[str, Any]:
+    """检测教师手写分数"""
+    try:
+        # 这里应该调用OCR/AI来识别教师手写的分数
+        # 暂时返回模拟数据
+        return {
+            'success': True,
+            'total_score': 100.0,
+            'student_score': 85.0,
+            'confidence': 0.85
+        }
+    except Exception as e:
+        logger.error(f'手写分数检测失败: {e}')
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
 def batch_analyze_papers(image_files: List[Tuple[str, bytes]], 
                          grade: str, 
                          paper_name: str,
                          concurrency: int = 4,
                          class_id: str = None,
-                         auto_detect_names: bool = True) -> Dict[str, Any]:
+                         auto_detect_names: bool = True,
+                         work_mode: str = 'auto') -> Dict[str, Any]:
     """批量分析试卷（增强版）
     
-    支持功能：
-    - 自动识别姓名和考号
-    - 多面答题卷自动关联
-    - 客观题自动批改
-    - 与班级学生信息匹配
+    work_mode: 工作模式
+      - 'auto': 完全自动批改（系统识别答案并批改）
+      - 'manual_score': 教师已手写批改，只识别学生信息和分数
+      - 'hybrid': 混合模式（客观题自动批改，主观题留空）
     """
     paper_id = str(uuid.uuid4())
     
@@ -623,7 +641,8 @@ def batch_analyze_papers(image_files: List[Tuple[str, bytes]],
         'questions': [],
         'knowledge_points': [],
         'student_info': {},
-        'multi_page_groups': {}
+        'multi_page_groups': {},
+        'work_mode': work_mode
     }
     metadata['papers'].append(paper_metadata)
     save_library_metadata(metadata)
@@ -642,6 +661,7 @@ def batch_analyze_papers(image_files: List[Tuple[str, bytes]],
     knowledge_points = set()
     student_info_map = {}
     multi_page_groups = {}
+    student_scores = []
     
     # 按文件名排序（假设命名规则支持多面识别）
     sorted_files = sorted(image_files, key=lambda x: x[0])
@@ -678,42 +698,78 @@ def batch_analyze_papers(image_files: List[Tuple[str, bytes]],
                     'status': 'complete'
                 }
         
-        # 使用AI分析（实际应该调用真实API，这里简化处理）
-        # 模拟分析结果
-        num_questions = 5 + idx % 3
-        page_questions = []
-        
-        for q_idx in range(num_questions):
-            # 模拟客观题
-            question = {
-                'id': str(uuid.uuid4()),
-                'page': idx,
-                'number': q_idx + 1,
-                'content': f'第{q_idx + 1}题：示例题目内容',
-                'type': 'choice' if q_idx % 3 == 0 else 'subjective',
-                'is_correct': (q_idx % 2 == 0),
-                'knowledge_points': ['知识点A', '知识点B'][q_idx % 2:(q_idx % 2 + 1)],
-                'error_type': '计算错误' if q_idx % 2 != 0 else None,
-                'difficulty': ['简单', '中等', '困难'][q_idx % 3],
-                'correct_answer': 'A' if q_idx % 2 == 0 else None,
-                'student_answer': 'A' if q_idx % 2 == 0 else 'B'
-            }
-            page_questions.append(question)
-            all_questions.append(question)
-            knowledge_points.update(question['knowledge_points'])
-    
-    # 自动批改客观题
-    auto_grade_result = auto_grade_objective_questions(all_questions)
-    all_questions = auto_grade_result['questions']
+        # 根据工作模式处理
+        if work_mode == 'manual_score':
+            # 模式1：教师已手写批改，只识别分数
+            score_detection = detect_handwritten_score(image_path)
+            if score_detection.get('success'):
+                student_scores.append({
+                    'student_key': student_key,
+                    'score': score_detection.get('student_score'),
+                    'total_score': score_detection.get('total_score'),
+                    'confidence': score_detection.get('confidence'),
+                    'page_index': idx
+                })
+        else:
+            # 模式2：自动批改或混合模式
+            # 模拟分析结果
+            num_questions = 5 + idx % 3
+            page_questions = []
+            
+            for q_idx in range(num_questions):
+                # 模拟客观题
+                question_type = 'choice' if q_idx % 3 == 0 else 'subjective'
+                is_correct = (q_idx % 2 == 0)
+                
+                # 混合模式下主观题不自动批改
+                if work_mode == 'hybrid' and question_type == 'subjective':
+                    is_correct = None
+                
+                question = {
+                    'id': str(uuid.uuid4()),
+                    'page': idx,
+                    'number': q_idx + 1,
+                    'content': f'第{q_idx + 1}题：示例题目内容',
+                    'type': question_type,
+                    'is_correct': is_correct,
+                    'knowledge_points': ['知识点A', '知识点B'][q_idx % 2:(q_idx % 2 + 1)],
+                    'error_type': '计算错误' if (q_idx % 2 != 0 and is_correct is False) else None,
+                    'difficulty': ['简单', '中等', '困难'][q_idx % 3],
+                    'correct_answer': 'A' if q_idx % 2 == 0 else None,
+                    'student_answer': 'A' if q_idx % 2 == 0 else 'B',
+                    'needs_manual_grading': work_mode == 'hybrid' and question_type == 'subjective'
+                }
+                page_questions.append(question)
+                all_questions.append(question)
+                knowledge_points.update(question['knowledge_points'])
     
     # 更新试卷数据
-    paper_metadata['questions'] = all_questions
-    paper_metadata['knowledge_points'] = list(knowledge_points)
+    if work_mode == 'manual_score':
+        paper_metadata['student_scores'] = student_scores
+        paper_metadata['status'] = 'completed'
+    else:
+        # 自动批改客观题
+        if work_mode == 'auto':
+            auto_grade_result = auto_grade_objective_questions(all_questions)
+            all_questions = auto_grade_result['questions']
+            correct_count = auto_grade_result['correct_count']
+            accuracy = auto_grade_result['accuracy']
+        else:
+            # 混合模式
+            correct_count = sum(1 for q in all_questions if q.get('is_correct') is True)
+            total_graded = sum(1 for q in all_questions if q.get('is_correct') is not None)
+            accuracy = (correct_count / total_graded * 100) if total_graded > 0 else 0
+        
+        paper_metadata['questions'] = all_questions
+        paper_metadata['knowledge_points'] = list(knowledge_points)
+        paper_metadata['total_questions'] = len(all_questions)
+        paper_metadata['correct_count'] = correct_count
+        paper_metadata['status'] = 'completed'
+        if work_mode == 'hybrid':
+            paper_metadata['status'] = 'needs_manual_review'
+    
     paper_metadata['student_info'] = student_info_map
     paper_metadata['multi_page_groups'] = multi_page_groups
-    paper_metadata['status'] = 'completed'
-    paper_metadata['total_questions'] = len(all_questions)
-    paper_metadata['correct_count'] = auto_grade_result['correct_count']
     paper_metadata['class_id'] = class_id
     paper_metadata['auto_detect_enabled'] = auto_detect_names
     
@@ -723,19 +779,39 @@ def batch_analyze_papers(image_files: List[Tuple[str, bytes]],
     # 如果有班级ID，自动分配试卷
     if class_id:
         assign_paper_to_class(class_id, paper_id)
+        
+        # 自动生成学生成绩记录
+        if work_mode == 'manual_score':
+            for score_record in student_scores:
+                student_key = score_record.get('student_key')
+                student_id = multi_page_groups.get(student_key, {}).get('student_id')
+                if student_id:
+                    add_student_score(
+                        class_id, 
+                        student_id, 
+                        {
+                            'paper_id': paper_id,
+                            'paper_name': paper_name,
+                            'score': score_record.get('score'),
+                            'total_score': score_record.get('total_score')
+                        }
+                    )
     
     return {
         'success': True,
         'paper_id': paper_id,
-        'total_questions': len(all_questions),
-        'correct_count': auto_grade_result['correct_count'],
-        'accuracy': auto_grade_result['accuracy'],
+        'work_mode': work_mode,
+        'total_questions': len(all_questions) if all_questions else 0,
+        'correct_count': correct_count if work_mode != 'manual_score' else 0,
+        'accuracy': accuracy if work_mode != 'manual_score' else 0,
         'detected_students': len(student_info_map),
         'multi_page_count': len([k for k, v in multi_page_groups.items() if v['total_pages'] > 1]),
+        'scores_detected': len(student_scores) if work_mode == 'manual_score' else 0,
         'analysis_details': {
-            'objective_auto_graded': True,
+            'objective_auto_graded': work_mode in ['auto', 'hybrid'],
             'student_matched': len([k for k, v in multi_page_groups.items() if v.get('student_id')]),
-            'knowledge_points_found': len(knowledge_points)
+            'knowledge_points_found': len(knowledge_points),
+            'needs_manual_review': work_mode == 'hybrid'
         }
     }
 

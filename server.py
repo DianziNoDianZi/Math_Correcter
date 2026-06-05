@@ -1252,9 +1252,13 @@ def batch_upload_papers():
         grade = request.form.get('grade', '10-12')
         class_id = request.form.get('class_id', '')  # 可选：关联班级
         auto_detect = request.form.get('auto_detect', 'true').lower() == 'true'
+        work_mode = request.form.get('work_mode', 'auto')  # auto/manual_score/hybrid
         
         if not files:
             return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+        
+        if work_mode not in ['auto', 'manual_score', 'hybrid']:
+            return jsonify({'success': False, 'error': '无效的工作模式'}), 400
         
         # 读取文件内容
         image_files = []
@@ -1273,7 +1277,8 @@ def batch_upload_papers():
             paper_name=paper_name,
             concurrency=int(request.form.get('concurrency', 4)),
             class_id=class_id if class_id else None,
-            auto_detect_names=auto_detect
+            auto_detect_names=auto_detect,
+            work_mode=work_mode
         )
         
         return jsonify(result)
