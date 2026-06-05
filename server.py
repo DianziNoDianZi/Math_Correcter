@@ -1847,6 +1847,40 @@ def adjust_exam_score(exam_id):
         logger.error(f'调整成绩失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/exams/<exam_id>/batch-confirm', methods=['POST'])
+@admin_required
+def batch_confirm_scores(exam_id):
+    """批量确认成绩"""
+    try:
+        data = request.get_json() or {}
+        student_numbers = data.get('student_numbers', [])
+        
+        if not student_numbers:
+            return jsonify({'success': False, 'error': '未选择学生'}), 400
+        
+        result = test_library.batch_confirm_scores(exam_id, student_numbers)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'批量确认成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/batch-adjust', methods=['POST'])
+@admin_required
+def batch_adjust_scores(exam_id):
+    """批量调整成绩"""
+    try:
+        data = request.get_json() or {}
+        adjustments = data.get('adjustments', [])  # [{student_number, score}]
+        
+        if not adjustments:
+            return jsonify({'success': False, 'error': '未提供调整数据'}), 400
+        
+        result = test_library.batch_adjust_scores(exam_id, adjustments)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'批量调整成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/exams/<exam_id>/analysis', methods=['GET'])
 @track_request_stats
 def get_exam_analysis(exam_id):

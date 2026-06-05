@@ -154,7 +154,7 @@
                 <!-- 审核内容 -->
                 <div id="review-content" class="hidden">
                     <!-- 审核摘要 -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                         <div class="bg-blue-50 rounded-lg p-4 text-center">
                             <div class="text-2xl font-bold text-blue-600" id="review-total">0</div>
                             <div class="text-sm text-gray-600">扫描数量</div>
@@ -171,6 +171,32 @@
                             <div class="text-2xl font-bold text-purple-600" id="review-avg">0%</div>
                             <div class="text-sm text-gray-600">平均正确率</div>
                         </div>
+                        <div class="bg-indigo-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-indigo-600" id="review-selected">0</div>
+                            <div class="text-sm text-gray-600">已选择</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 批量操作工具栏 -->
+                    <div class="mb-4 p-4 bg-gray-100 rounded-lg">
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <button onclick="toggleSelectAll()" class="bg-gray-500 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded text-sm">
+                                ☑️ 全选/取消
+                            </button>
+                            <button onclick="batchConfirmSelected()" class="bg-green-500 hover:bg-green-700 text-white font-medium py-2 px-4 rounded text-sm">
+                                ✅ 批量确认
+                            </button>
+                            <button onclick="showBatchAdjustModal()" class="bg-indigo-500 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded text-sm">
+                                📊 批量调整分数
+                            </button>
+                            <button onclick="batchMarkExcellent()" class="bg-blue-500 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded text-sm">
+                                ⭐ 标记优秀
+                            </button>
+                            <button onclick="batchMarkPass()" class="bg-yellow-500 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded text-sm">
+                                ✓ 标记及格
+                            </button>
+                            <span id="selection-hint" class="text-sm text-gray-600 ml-4">请选择要操作的学生成绩</span>
+                        </div>
                     </div>
                     
                     <!-- 成绩列表 -->
@@ -180,6 +206,9 @@
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                            <input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll()" class="rounded">
+                                        </th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">学号</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">姓名</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">总分</th>
@@ -939,20 +968,36 @@
             document.getElementById('review-matched').textContent = matched;
             document.getElementById('review-unmatched').textContent = scores.length - matched;
             document.getElementById('review-avg').textContent = `${totalAccuracy.toFixed(1)}%`;
+            document.getElementById('review-selected').textContent = '0';
             
             const tbody = document.getElementById('review-score-body');
             tbody.innerHTML = scores.map(s => {
                 const isMatched = !!s.student_id;
+                const isConfirmed = s.confirmed || false;
                 return `
-                    <tr class="${isMatched ? '' : 'bg-yellow-50'}">
+                    <tr class="${isMatched ? '' : 'bg-yellow-50'} ${isConfirmed ? 'bg-green-50' : ''}">
+                        <td class="px-4 py-2">
+                            <input type="checkbox" 
+                                   class="student-checkbox rounded" 
+                                   data-student-number="${s.student_number}"
+                                   data-student-name="${s.student_name || '未匹配'}"
+                                   data-score="${s.total_score}"
+                                   data-max-score="${s.max_score}"
+                                   ${!isMatched ? 'disabled' : ''}
+                                   onchange="updateSelectionCount()">
+                        </td>
                         <td class="px-4 py-2">${s.student_number || '-'}</td>
                         <td class="px-4 py-2">${s.student_name || '未匹配'}</td>
                         <td class="px-4 py-2 font-medium">${s.total_score}/${s.max_score}</td>
                         <td class="px-4 py-2">${(s.accuracy || 0).toFixed(1)}%</td>
                         <td class="px-4 py-2">
-                            <span class="px-2 py-1 rounded text-xs ${isMatched ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                                ${isMatched ? '已匹配' : '未匹配'}
-                            </span>
+                            <div class="flex flex-col gap-1">
+                                <span class="px-2 py-1 rounded text-xs ${isMatched ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                    ${isMatched ? '已匹配' : '未匹配'}
+                                </span>
+                                ${isConfirmed ? '<span class="px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">已确认</span>' : ''}
+                                ${s.adjusted ? '<span class="px-2 py-1 rounded text-xs bg-purple-100 text-purple-800">已调整</span>' : ''}
+                            </div>
                         </td>
                         <td class="px-4 py-2">
                             ${isMatched ? `<button onclick="adjustScore('${s.student_number}')" class="text-sm text-indigo-600 hover:text-indigo-800">调整</button>` : ''}
@@ -1000,6 +1045,327 @@
         function exportScores() {
             if (!currentExam) return;
             alert('导出功能开发中...');
+        }
+        
+        // ========== 批量操作 ==========
+        function getSelectedStudents() {
+            const checkboxes = document.querySelectorAll('.student-checkbox:checked:not(:disabled)');
+            return Array.from(checkboxes).map(cb => ({
+                student_number: cb.dataset.studentNumber,
+                student_name: cb.dataset.studentName,
+                score: parseFloat(cb.dataset.score),
+                max_score: parseFloat(cb.dataset.maxScore)
+            }));
+        }
+        
+        function updateSelectionCount() {
+            const selected = getSelectedStudents();
+            document.getElementById('review-selected').textContent = selected.length;
+            
+            const hint = document.getElementById('selection-hint');
+            if (selected.length === 0) {
+                hint.textContent = '请选择要操作的学生成绩';
+                hint.className = 'text-sm text-gray-600 ml-4';
+            } else {
+                hint.textContent = `已选择 ${selected.length} 名学生`;
+                hint.className = 'text-sm text-indigo-600 font-medium ml-4';
+            }
+        }
+        
+        function toggleSelectAll() {
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            const checkboxes = document.querySelectorAll('.student-checkbox:not(:disabled)');
+            const allSelected = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(cb => {
+                cb.checked = !allSelected;
+            });
+            
+            selectAllCheckbox.checked = !allSelected;
+            updateSelectionCount();
+        }
+        
+        async function batchConfirmSelected() {
+            const selected = getSelectedStudents();
+            
+            if (selected.length === 0) {
+                alert('请先选择要确认的学生成绩');
+                return;
+            }
+            
+            if (!confirm(`确定要确认选中的 ${selected.length} 名学生的成绩吗？`)) {
+                return;
+            }
+            
+            try {
+                const studentNumbers = selected.map(s => s.student_number);
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/batch-confirm`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_numbers: studentNumbers })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert(data.message || '批量确认成功！');
+                    loadReviewData();
+                } else {
+                    alert('确认失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('操作失败: ' + e.message);
+            }
+        }
+        
+        function showBatchAdjustModal() {
+            const selected = getSelectedStudents();
+            
+            if (selected.length === 0) {
+                alert('请先选择要调整的学生成绩');
+                return;
+            }
+            
+            const modal = document.createElement('div');
+            modal.id = 'batch-adjust-modal';
+            modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+            modal.style.display = 'block';
+            
+            modal.innerHTML = `
+                <div class="bg-white rounded-lg shadow-xl p-6 max-w-4xl max-h-[80vh] overflow-y-auto" style="width: 90%; max-width: 800px;">
+                    <h3 class="text-xl font-bold mb-4">📊 批量调整分数</h3>
+                    <p class="text-sm text-gray-600 mb-4">将为选中的 ${selected.length} 名学生调整分数</p>
+                    
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">调整方式</label>
+                        <select id="adjust-type" class="shadow border rounded w-full py-2 px-3" onchange="toggleAdjustMode()">
+                            <option value="absolute">调整为固定分数</option>
+                            <option value="relative">按比例调整</option>
+                            <option value="increment">加分/减分</option>
+                        </select>
+                    </div>
+                    
+                    <div id="absolute-adjust" class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">目标分数</label>
+                        <input type="number" id="target-score" class="shadow border rounded w-full py-2 px-3" placeholder="输入目标分数" step="0.5" oninput="updatePreview()">
+                    </div>
+                    
+                    <div id="relative-adjust" class="mb-4 hidden">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">调整比例 (%)</label>
+                        <input type="number" id="adjust-percent" class="shadow border rounded w-full py-2 px-3" placeholder="例如: 110 表示乘以1.1" step="1" value="100" oninput="updatePreview()">
+                    </div>
+                    
+                    <div id="increment-adjust" class="mb-4 hidden">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">调整分值</label>
+                        <input type="number" id="adjust-value" class="shadow border rounded w-full py-2 px-3" placeholder="正数为加分，负数为减分" step="0.5" oninput="updatePreview()">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <h4 class="font-medium mb-2">预览调整结果 (前10条)</h4>
+                        <div class="bg-gray-50 rounded p-3 max-h-60 overflow-y-auto">
+                            <table class="min-w-full text-sm">
+                                <thead>
+                                    <tr>
+                                        <th class="text-left">学号</th>
+                                        <th class="text-left">姓名</th>
+                                        <th class="text-left">当前分数</th>
+                                        <th class="text-left">调整后</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="preview-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-4">
+                        <button onclick="applyBatchAdjust()" class="flex-1 bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded">
+                            确认调整
+                        </button>
+                        <button onclick="closeBatchAdjustModal()" class="flex-1 bg-gray-500 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded">
+                            取消
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            updatePreview();
+        }
+        
+        function toggleAdjustMode() {
+            const type = document.getElementById('adjust-type').value;
+            document.getElementById('absolute-adjust').classList.toggle('hidden', type !== 'absolute');
+            document.getElementById('relative-adjust').classList.toggle('hidden', type !== 'relative');
+            document.getElementById('increment-adjust').classList.toggle('hidden', type !== 'increment');
+            updatePreview();
+        }
+        
+        function updatePreview() {
+            const selected = getSelectedStudents();
+            const type = document.getElementById('adjust-type')?.value || 'absolute';
+            let targetScore = parseFloat(document.getElementById('target-score')?.value) || 0;
+            let adjustPercent = parseFloat(document.getElementById('adjust-percent')?.value) || 100;
+            let adjustValue = parseFloat(document.getElementById('adjust-value')?.value) || 0;
+            
+            const previewBody = document.getElementById('preview-body');
+            if (!previewBody) return;
+            
+            const preview = selected.slice(0, 10).map(s => {
+                let newScore;
+                switch (type) {
+                    case 'absolute':
+                        newScore = targetScore;
+                        break;
+                    case 'relative':
+                        newScore = s.score * (adjustPercent / 100);
+                        break;
+                    case 'increment':
+                        newScore = s.score + adjustValue;
+                        break;
+                }
+                newScore = Math.max(0, Math.min(s.max_score, newScore));
+                
+                return `
+                    <tr class="${newScore !== s.score ? 'bg-yellow-50' : ''}">
+                        <td class="py-1">${s.student_number}</td>
+                        <td class="py-1">${s.student_name}</td>
+                        <td class="py-1">${s.score}</td>
+                        <td class="py-1 font-medium">${newScore.toFixed(1)}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            previewBody.innerHTML = preview;
+        }
+        
+        async function applyBatchAdjust() {
+            const selected = getSelectedStudents();
+            const type = document.getElementById('adjust-type').value;
+            
+            let adjustments = selected.map(s => {
+                let newScore;
+                switch (type) {
+                    case 'absolute':
+                        newScore = parseFloat(document.getElementById('target-score').value) || 0;
+                        break;
+                    case 'relative':
+                        newScore = s.score * (parseFloat(document.getElementById('adjust-percent').value) / 100);
+                        break;
+                    case 'increment':
+                        newScore = s.score + parseFloat(document.getElementById('adjust-value').value);
+                        break;
+                }
+                newScore = Math.max(0, Math.min(s.max_score, newScore));
+                
+                return {
+                    student_number: s.student_number,
+                    score: newScore
+                };
+            });
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/batch-adjust`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ adjustments })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert(data.message || '批量调整成功！');
+                    closeBatchAdjustModal();
+                    loadReviewData();
+                } else {
+                    alert('调整失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('操作失败: ' + e.message);
+            }
+        }
+        
+        function closeBatchAdjustModal() {
+            const modal = document.getElementById('batch-adjust-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+        
+        async function batchMarkExcellent() {
+            const selected = getSelectedStudents();
+            
+            if (selected.length === 0) {
+                alert('请先选择要标记的学生成绩');
+                return;
+            }
+            
+            // 标记优秀：成绩达到90%以上
+            const adjustments = selected
+                .filter(s => s.score / s.max_score >= 0.9)
+                .map(s => ({
+                    student_number: s.student_number,
+                    score: s.score  // 保持原分数，只做标记
+                }));
+            
+            if (adjustments.length === 0) {
+                alert('选中学生中没有达到优秀标准（90%）的');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/batch-confirm`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        student_numbers: adjustments.map(a => a.student_number)
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert(`已标记 ${data.confirmed} 名学生为优秀并确认`);
+                    loadReviewData();
+                } else {
+                    alert('操作失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('操作失败: ' + e.message);
+            }
+        }
+        
+        async function batchMarkPass() {
+            const selected = getSelectedStudents();
+            
+            if (selected.length === 0) {
+                alert('请先选择要标记的学生成绩');
+                return;
+            }
+            
+            // 标记及格：成绩达到60%以上
+            const passStudents = selected.filter(s => s.score / s.max_score >= 0.6);
+            
+            if (passStudents.length === 0) {
+                alert('选中学生中没有达到及格标准（60%）的');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/exams/${currentExam.id}/batch-confirm`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        student_numbers: passStudents.map(s => s.student_number)
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert(`已标记 ${data.confirmed} 名学生为及格并确认`);
+                    loadReviewData();
+                } else {
+                    alert('操作失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('操作失败: ' + e.message);
+            }
         }
 
         // ========== 学情分析 ==========

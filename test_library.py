@@ -616,6 +616,67 @@ def adjust_score(exam_id: str, student_number: str, score: float) -> Dict[str, A
             return {'success': False, 'error': '未找到该学生成绩'}
     return {'success': False, 'error': '考试不存在'}
 
+def batch_confirm_scores(exam_id: str, student_numbers: List[str]) -> Dict[str, Any]:
+    """批量确认成绩"""
+    metadata = load_exams_metadata()
+    confirmed_count = 0
+    
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            for s in exam['scores']:
+                if s.get('student_number') in student_numbers:
+                    s['confirmed'] = True
+                    confirmed_count += 1
+            
+            if confirmed_count > 0:
+                save_exams_metadata(metadata)
+                return {
+                    'success': True,
+                    'confirmed': confirmed_count,
+                    'message': f'成功确认 {confirmed_count} 条成绩'
+                }
+            return {'success': False, 'error': '未找到匹配的学生成绩'}
+    return {'success': False, 'error': '考试不存在'}
+
+def batch_adjust_scores(exam_id: str, adjustments: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """批量调整成绩"""
+    metadata = load_exams_metadata()
+    adjusted_count = 0
+    failed = []
+    
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            for adjustment in adjustments:
+                student_number = adjustment.get('student_number')
+                score = adjustment.get('score')
+                
+                if not student_number or score is None:
+                    failed.append({'student_number': student_number, 'error': '参数不完整'})
+                    continue
+                
+                found = False
+                for s in exam['scores']:
+                    if s.get('student_number') == student_number:
+                        s['total_score'] = float(score)
+                        s['adjusted'] = True
+                        adjusted_count += 1
+                        found = True
+                        break
+                
+                if not found:
+                    failed.append({'student_number': student_number, 'error': '未找到该学生'})
+            
+            if adjusted_count > 0:
+                save_exams_metadata(metadata)
+            
+            return {
+                'success': True,
+                'adjusted': adjusted_count,
+                'failed': failed,
+                'message': f'成功调整 {adjusted_count} 条成绩' + (f', {len(failed)} 条失败' if failed else '')
+            }
+    return {'success': False, 'error': '考试不存在'}
+
 def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
     """获取考试详细分析"""
     exam = get_exam_by_id(exam_id)
