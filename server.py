@@ -1891,6 +1891,61 @@ def get_exam_analysis(exam_id):
     except Exception as e:
         logger.error(f'获取考试分析失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/exams/<exam_id>/export', methods=['GET'])
+@track_request_stats
+def export_exam_scores(exam_id):
+    """导出考试成绩"""
+    try:
+        export_format = request.args.get('format', 'csv')
+        
+        if export_format not in ['csv', 'excel']:
+            return jsonify({'success': False, 'error': '不支持的导出格式'}), 400
+        
+        filepath = test_library.export_exam_scores(exam_id, export_format)
+        
+        if not filepath:
+            return jsonify({'success': False, 'error': '导出失败或没有成绩数据'}), 400
+        
+        # 返回文件下载
+        filename = os.path.basename(filepath)
+        return send_from_directory(
+            os.path.dirname(filepath),
+            filename,
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f'导出成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/export', methods=['GET'])
+@track_request_stats
+def export_class_scores(class_id):
+    """导出班级所有考试成绩"""
+    try:
+        export_format = request.args.get('format', 'csv')
+        
+        if export_format not in ['csv', 'excel']:
+            return jsonify({'success': False, 'error': '不支持的导出格式'}), 400
+        
+        filepath = test_library.export_class_scores(class_id, export_format)
+        
+        if not filepath:
+            return jsonify({'success': False, 'error': '导出失败'}), 400
+        
+        # 返回文件下载
+        filename = os.path.basename(filepath)
+        return send_from_directory(
+            os.path.dirname(filepath),
+            filename,
+            as_attachment=True,
+            download_name=filename
+        )
+    except Exception as e:
+        logger.error(f'导出班级成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
 _EXECUTOR = None

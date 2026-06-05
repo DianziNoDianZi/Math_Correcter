@@ -926,3 +926,367 @@ def generate_class_report(class_id: str) -> Dict[str, Any]:
     save_json(report_path, report)
     
     return {'success': True, 'report': report}
+
+# ========== 成绩导出功能 ==========
+
+def export_exam_scores(exam_id: str, export_format: str = 'csv') -> Optional[str]:
+    """
+    导出考试成绩为CSV或Excel格式
+    
+    Args:
+        exam_id: 考试ID
+        export_format: 导出格式 ('csv' 或 'excel')
+    
+    Returns:
+        导出文件的临时路径，失败返回None
+    """
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        logger.error(f'考试不存在: {exam_id}')
+        return None
+    
+    scores = exam.get('scores', [])
+    if not scores:
+        logger.warning(f'考试没有成绩数据: {exam_id}')
+        return None
+    
+    # 创建导出目录
+    export_dir = os.path.join(DATA_DIR, 'exports')
+    os.makedirs(export_dir, exist_ok=True)
+    
+    # 生成文件名
+    exam_name = exam.get('name', '未知考试').replace(' ', '_').replace('/', '_')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'{exam_name}_{timestamp}.{export_format}'
+    filepath = os.path.join(export_dir, filename)
+    
+    if export_format == 'csv':
+        return _export_to_csv(exam, scores, filepath)
+    elif export_format == 'excel':
+        return _export_to_excel(exam, scores, filepath)
+    else:
+        logger.error(f'不支持的导出格式: {export_format}')
+        return None
+
+def _export_to_csv(exam: Dict, scores: List[Dict], filepath: str) -> Optional[str]:
+    """导出为CSV格式"""
+    try:
+        import csv
+        
+        with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            
+            # 写入标题
+            writer.writerow([
+                '学号', '姓名', '总分', '满分', '正确率(%)', 
+                '匹配状态', '确认状态', '调整标记',
+                '考试名称', '考试日期', '班级'
+            ])
+            
+            # 写入数据
+            for score in scores:
+                writer.writerow([
+                    score.get('student_number', ''),
+                    score.get('student_name', '未匹配'),
+                    score.get('total_score', 0),
+                    score.get('max_score', 100),
+                    round(score.get('accuracy', 0), 1),
+                    '已匹配' if score.get('student_id') else '未匹配',
+                    '已确认' if score.get('confirmed') else '未确认',
+                    '已调整' if score.get('adjusted') else '未调整',
+                    exam.get('name', ''),
+                    exam.get('created_at', ''),
+                    exam.get('class_name', '')
+                ])
+        
+        logger.info(f'CSV导出成功: {filepath}')
+        return filepath
+    except Exception as e:
+        logger.error(f'CSV导出失败: {e}')
+        return None
+
+def _export_to_excel(exam: Dict, scores: List[Dict], filepath: str) -> Optional[str]:
+    """导出为Excel格式"""
+    try:
+        # 尝试导入openpyxl
+        try:
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+        except ImportError:
+            logger.warning('openpyxl未安装，尝试安装...')
+            import subprocess
+            subprocess.check_call(['pip', 'install', 'openpyxl', '-q'])
+            from openpyxl import Workbook
+            from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+            from openpyxl.utils import get_column_letter
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '成绩单'
+        
+        # 定义样式
+        header_font = Font(bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+        header_alignment = Alignment(horizontal='center', vertical='center')
+        
+        thin_border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+        
+        # 标题行
+        headers = ['学号', '姓名', '总分', '满分', '正确率(%)', 
+                   '匹配状态', '确认状态', '调整标记', '考试名称', '考试日期', '班级']
+        ws.append(headers)
+        
+        # 设置标题样式
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = thin_border
+        
+        # 数据行
+        for score in scores:
+            ws.append([
+                score.get('student_number', ''),
+                score.get('student_name', '未匹配'),
+                score.get('total_score', 0),
+                score.get('max_score', 100),
+                round(score.get('accuracy', 0), 1),
+                '已匹配' if score.get('student_id') else '未匹配',
+                '已确认' if score.get('confirmed') else '未确认',
+                '已调整' if score.get('adjusted') else '未调整',
+                exam.get('name', ''),
+                exam.get('created_at', ''),
+                exam.get('class_name', '')
+            ])
+        
+        # 自动调整列宽
+        for col in range(1, len(headers) + 1):
+            max_length = 0
+            column = get_column_letter(col)
+            for row in range(2, ws.max_row + 1):
+                try:
+                    if ws.cell(row=row, column=col).value:
+                        max_length = max(max_length, len(str(ws.cell(row=row, column=col).value)))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column].width = adjusted_width
+        
+        # 添加统计信息sheet
+        ws_stats = wb.create_sheet(title='统计信息')
+        
+        # 计算统计数据
+        total_students = len(scores)
+        matched_students = sum(1 for s in scores if s.get('student_id'))
+        confirmed_students = sum(1 for s in scores if s.get('confirmed'))
+        adjusted_students = sum(1 for s in scores if s.get('adjusted'))
+        
+        total_scores = [s.get('total_score', 0) for s in scores]
+        avg_score = sum(total_scores) / len(total_scores) if total_scores else 0
+        max_score = max(total_scores) if total_scores else 0
+        min_score = min(total_scores) if total_scores else 0
+        
+        accuracies = [s.get('accuracy', 0) for s in scores]
+        avg_accuracy = sum(accuracies) / len(accuracies) if accuracies else 0
+        
+        # 写入统计信息
+        stats_data = [
+            ['项目', '数值'],
+            ['考试名称', exam.get('name', '')],
+            ['考试日期', exam.get('created_at', '')],
+            ['班级', exam.get('class_name', '')],
+            ['总人数', total_students],
+            ['已匹配人数', matched_students],
+            ['已确认人数', confirmed_students],
+            ['已调整人数', adjusted_students],
+            ['平均分', round(avg_score, 2)],
+            ['最高分', max_score],
+            ['最低分', min_score],
+            ['平均正确率(%)', round(avg_accuracy, 2)],
+            ['', ''],
+            ['导出时间', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+        ]
+        
+        for row_data in stats_data:
+            ws_stats.append(row_data)
+        
+        # 设置统计信息sheet样式
+        ws_stats.cell(row=1, column=1).font = Font(bold=True)
+        ws_stats.cell(row=1, column=2).font = Font(bold=True)
+        ws_stats.column_dimensions['A'].width = 20
+        ws_stats.column_dimensions['B'].width = 30
+        
+        wb.save(filepath)
+        logger.info(f'Excel导出成功: {filepath}')
+        return filepath
+    except Exception as e:
+        logger.error(f'Excel导出失败: {e}')
+        return None
+
+def export_class_scores(class_id: str, export_format: str = 'csv') -> Optional[str]:
+    """
+    导出班级所有考试成绩
+    
+    Args:
+        class_id: 班级ID
+        export_format: 导出格式
+    
+    Returns:
+        导出文件的临时路径，失败返回None
+    """
+    cls = get_class_by_id(class_id)
+    if not cls:
+        logger.error(f'班级不存在: {class_id}')
+        return None
+    
+    exams = get_exams_by_class(class_id)
+    
+    # 创建导出目录
+    export_dir = os.path.join(DATA_DIR, 'exports')
+    os.makedirs(export_dir, exist_ok=True)
+    
+    # 生成文件名
+    class_name = cls.get('name', '未知班级').replace(' ', '_').replace('/', '_')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'{class_name}_成绩汇总_{timestamp}.{export_format}'
+    filepath = os.path.join(export_dir, filename)
+    
+    if export_format == 'csv':
+        return _export_class_to_csv(cls, exams, filepath)
+    elif export_format == 'excel':
+        return _export_class_to_excel(cls, exams, filepath)
+    else:
+        return None
+
+def _export_class_to_csv(cls: Dict, exams: List[Dict], filepath: str) -> Optional[str]:
+    """导出班级成绩为CSV"""
+    try:
+        import csv
+        
+        # 收集所有考试名称
+        exam_names = [e.get('name', '未知考试') for e in exams if e.get('status') == 'completed']
+        
+        with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f)
+            
+            # 标题行
+            headers = ['学号', '姓名'] + exam_names + ['平均分', '总分']
+            writer.writerow(headers)
+            
+            # 按学生分组
+            students_data = {}
+            for exam in exams:
+                if exam.get('status') != 'completed':
+                    continue
+                for score in exam.get('scores', []):
+                    student_number = score.get('student_number', '')
+                    if student_number:
+                        if student_number not in students_data:
+                            students_data[student_number] = {
+                                'name': score.get('student_name', ''),
+                                'scores': {}
+                            }
+                        students_data[student_number]['scores'][exam.get('name')] = score.get('total_score', 0)
+            
+            # 写入学生数据
+            for student_number, data in students_data.items():
+                row = [student_number, data['name']]
+                total = 0
+                count = 0
+                for exam_name in exam_names:
+                    score = data['scores'].get(exam_name, '-')
+                    row.append(score)
+                    if isinstance(score, (int, float)):
+                        total += score
+                        count += 1
+                row.append(round(total / count, 1) if count > 0 else '-')
+                row.append(total if count > 0 else '-')
+                writer.writerow(row)
+        
+        return filepath
+    except Exception as e:
+        logger.error(f'班级成绩CSV导出失败: {e}')
+        return None
+
+def _export_class_to_excel(cls: Dict, exams: List[Dict], filepath: str) -> Optional[str]:
+    """导出班级成绩为Excel"""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.utils import get_column_letter
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = '成绩汇总'
+        
+        # 收集所有完成的考试
+        completed_exams = [e for e in exams if e.get('status') == 'completed']
+        exam_names = [e.get('name', '未知考试') for e in completed_exams]
+        
+        # 标题样式
+        header_font = Font(bold=True, color='FFFFFF')
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+        
+        # 标题行
+        headers = ['学号', '姓名'] + exam_names + ['平均分', '总分']
+        ws.append(headers)
+        
+        for col in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center')
+        
+        # 按学生分组
+        students_data = {}
+        for exam in completed_exams:
+            for score in exam.get('scores', []):
+                student_number = score.get('student_number', '')
+                if student_number:
+                    if student_number not in students_data:
+                        students_data[student_number] = {
+                            'name': score.get('student_name', ''),
+                            'scores': {}
+                        }
+                    students_data[student_number]['scores'][exam.get('name')] = score.get('total_score', 0)
+        
+        # 写入学生数据
+        for student_number, data in students_data.items():
+            row = [student_number, data['name']]
+            total = 0
+            count = 0
+            for exam_name in exam_names:
+                score = data['scores'].get(exam_name, '-')
+                row.append(score)
+                if isinstance(score, (int, float)):
+                    total += score
+                    count += 1
+            row.append(round(total / count, 1) if count > 0 else '-')
+            row.append(total if count > 0 else '-')
+            ws.append(row)
+        
+        # 自动调整列宽
+        for col in range(1, len(headers) + 1):
+            max_length = 0
+            column = get_column_letter(col)
+            for row in range(2, ws.max_row + 1):
+                try:
+                    if ws.cell(row=row, column=col).value:
+                        max_length = max(max_length, len(str(ws.cell(row=row, column=col).value)))
+                except:
+                    pass
+            ws.column_dimensions[column].width = min(max_length + 2, 30)
+        
+        wb.save(filepath)
+        return filepath
+    except Exception as e:
+        logger.error(f'班级成绩Excel导出失败: {e}')
+        return None
+
