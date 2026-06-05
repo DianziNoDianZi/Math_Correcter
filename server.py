@@ -269,6 +269,7 @@ def index():
     return render_template('index.html')
 
 @app.route('/library')
+@admin_required
 def library_page():
     """试卷库管理页面"""
     return render_template('library.html')
@@ -1479,6 +1480,108 @@ def export_questions():
         return jsonify({'success': True, 'filename': filename})
     except Exception as e:
         logger.error(f'导出题目失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# --- 班级管理API ---
+
+@app.route('/api/classes', methods=['GET'])
+@track_request_stats
+def get_classes():
+    """获取所有班级"""
+    try:
+        classes = test_library.get_all_classes()
+        return jsonify({'success': True, 'classes': classes})
+    except Exception as e:
+        logger.error(f'获取班级列表失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes', methods=['POST'])
+@admin_required
+def create_class():
+    """创建新班级"""
+    try:
+        data = request.get_json() or {}
+        class_name = data.get('name', '')
+        grade = data.get('grade', '10-12')
+        teacher_name = data.get('teacher_name', '')
+        
+        if not class_name:
+            return jsonify({'success': False, 'error': '班级名称不能为空'}), 400
+        
+        class_id = test_library.add_class(class_name, grade, teacher_name)
+        return jsonify({'success': True, 'class_id': class_id})
+    except Exception as e:
+        logger.error(f'创建班级失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/students', methods=['POST'])
+@admin_required
+def add_student(class_id):
+    """添加学生到班级"""
+    try:
+        data = request.get_json() or {}
+        student_info = data.get('student', {})
+        
+        success = test_library.add_student_to_class(class_id, student_info)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'添加学生失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/papers', methods=['POST'])
+@admin_required
+def assign_paper_to_class(class_id):
+    """将试卷分配给班级"""
+    try:
+        data = request.get_json() or {}
+        paper_id = data.get('paper_id', '')
+        
+        success = test_library.assign_paper_to_class(class_id, paper_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'分配试卷失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/performance', methods=['GET'])
+@track_request_stats
+def get_class_performance(class_id):
+    """获取班级成绩分析"""
+    try:
+        performance = test_library.analyze_class_performance(class_id)
+        return jsonify(performance)
+    except Exception as e:
+        logger.error(f'获取班级成绩分析失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/report', methods=['POST'])
+@admin_required
+def generate_class_report(class_id):
+    """生成班级成绩报告"""
+    try:
+        report = test_library.export_class_report(class_id)
+        return jsonify(report)
+    except Exception as e:
+        logger.error(f'生成班级报告失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>', methods=['DELETE'])
+@admin_required
+def delete_class(class_id):
+    """删除班级"""
+    try:
+        success = test_library.delete_class(class_id)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '班级未找到'}), 404
+    except Exception as e:
+        logger.error(f'删除班级失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 # --- 初始化 ---

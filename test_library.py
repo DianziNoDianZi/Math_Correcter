@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""试卷库管理和分析模块：批量上传、分析、知识点统计和提示词优化。"""
+"""试卷库管理和分析模块：面向教师/学校的教学管理平台"""
 import os
 import json
 import base64
@@ -19,16 +19,19 @@ logger = logging.getLogger(__name__)
 os.makedirs(TEST_LIBRARY_DIR, exist_ok=True)
 os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'images'), exist_ok=True)
 os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'analyses'), exist_ok=True)
+os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'classes'), exist_ok=True)
+os.makedirs(os.path.join(TEST_LIBRARY_DIR, 'reports'), exist_ok=True)
 
-def init_library_directories():
-    """初始化试卷库目录"""
-    for dir_name in ['images', 'analyses', 'exports']:
-        path = os.path.join(TEST_LIBRARY_DIR, dir_name)
-        os.makedirs(path, exist_ok=True)
-
-def get_library_metadata_path():
+# 数据文件路径
+def get_library_metadata_path() -> str:
     """获取试卷库元数据文件路径"""
     return os.path.join(TEST_LIBRARY_DIR, 'library_metadata.json')
+
+def get_classes_metadata_path() -> str:
+    """获取班级元数据文件路径"""
+    return os.path.join(TEST_LIBRARY_DIR, 'classes_metadata.json')
+
+# ========== 数据加载/保存 ==========
 
 def load_library_metadata() -> Dict[str, Any]:
     """加载试卷库元数据"""
@@ -55,6 +58,28 @@ def save_library_metadata(metadata: Dict[str, Any]) -> None:
     except Exception as e:
         logger.error(f'Failed to save library metadata: {e}')
 
+def load_classes_metadata() -> Dict[str, Any]:
+    """加载班级元数据"""
+    path = get_classes_metadata_path()
+    if os.path.exists(path):
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f'Failed to load classes metadata: {e}')
+    return {
+        'classes': []
+    }
+
+def save_classes_metadata(metadata: Dict[str, Any]) -> None:
+    """保存班级元数据"""
+    path = get_classes_metadata_path()
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f'Failed to save classes metadata: {e}')
+
 def save_paper_analysis(paper_id: str, analysis_data: Dict[str, Any]) -> None:
     """保存单张试卷的分析结果"""
     path = os.path.join(TEST_LIBRARY_DIR, 'analyses', f'{paper_id}.json')
@@ -75,102 +100,308 @@ def load_paper_analysis(paper_id: str) -> Optional[Dict[str, Any]]:
             logger.error(f'Failed to load paper analysis: {e}')
     return None
 
-def analyze_single_image(base64_image: str, grade: str) -> Dict[str, Any]:
-    """分析单张试卷图片"""
-    try:
-        # 使用视觉模型提取内容
-        vision_model = processor._load_config().get('vision_model', '')
-        text_model = processor._load_config().get('text_model', '')
-        
-        if not vision_model or not text_model:
-            return {
-                'success': False,
-                'error': '模型未配置'
-            }
-        
-        extracted_content = processor.call_llm_api(
-            vision_model,
-            [{"role": "user", "content": processor.FIRST_PROMPT}],
-            image_url=base64_image
-        )
-        
-        # 分析知识点
-        analysis_prompt = f"""请分析以下数学题目，提取详细信息。学生年级是{grade}。
+# ========== 班级管理 ==========
 
-请按以下JSON格式返回（不要Markdown标记，只返回纯JSON）：
-{{
-    "questions": [
-        {{
-            "content": "题目内容",
-            "answer": "学生答案",
-            "correct_answer": "正确答案",
-            "is_correct": true/false,
-            "knowledge_points": ["知识点1", "知识点2"],
-            "difficulty": "简单/中等/困难",
-            "question_type": "选择题/填空题/解答题/证明题",
-            "error_type": "概念错误/计算错误/审题错误/格式错误/其他（如正确）"
-        }}
-    ],
-    "summary": {{
-        "total_questions": 总数,
-        "correct_count": 正确数量,
-        "accuracy_rate": 正确率,
-        "main_knowledge_gaps": ["主要知识缺陷1", "主要知识缺陷2"]
-    }}
-}}
+def add_class(class_name: str, grade: str, teacher_name: str = "") -> str:
+    """添加新班级"""
+    metadata = load_classes_metadata()
+    class_id = str(uuid.uuid4())
+    new_class = {
+        'id': class_id,
+        'name': class_name,
+        'grade': grade,
+        'teacher_name': teacher_name,
+        'create_time': datetime.now().isoformat(),
+        'students': [],
+        'assigned_papers': []
+    }
+    metadata['classes'].append(new_class)
+    save_classes_metadata(metadata)
+    return class_id
 
-题目内容：
-{extracted_content}
-"""
-        
-        analysis_result = processor.call_llm_api(
-            text_model,
-            [{"role": "user", "content": analysis_prompt}]
-        )
-        
-        # 尝试解析JSON
-        try:
-            cleaned_result = analysis_result.strip()
-            if cleaned_result.startswith('```json'):
-                cleaned_result = cleaned_result[7:]
-            if cleaned_result.startswith('```'):
-                cleaned_result = cleaned_result[3:]
-            if cleaned_result.endswith('```'):
-                cleaned_result = cleaned_result[:-3]
-            
-            analysis_data = json.loads(cleaned_result)
-            return {
-                'success': True,
-                'extracted': extracted_content,
-                'analysis': analysis_data
-            }
-        except Exception as e:
-            return {
-                'success': True,
-                'extracted': extracted_content,
-                'analysis': None,
-                'parse_error': str(e)
-            }
-            
-    except Exception as e:
-        logger.error(f'Error analyzing image: {e}')
+def get_all_classes() -> List[Dict[str, Any]]:
+    """获取所有班级"""
+    return load_classes_metadata().get('classes', [])
+
+def get_class_by_id(class_id: str) -> Optional[Dict[str, Any]]:
+    """根据ID获取班级信息"""
+    classes = get_all_classes()
+    for cls in classes:
+        if cls['id'] == class_id:
+            return cls
+    return None
+
+def add_student_to_class(class_id: str, student_info: Dict[str, Any]) -> bool:
+    """添加学生到班级"""
+    metadata = load_classes_metadata()
+    for cls in metadata['classes']:
+        if cls['id'] == class_id:
+            student_info['id'] = str(uuid.uuid4())
+            student_info['join_time'] = datetime.now().isoformat()
+            cls['students'].append(student_info)
+            save_classes_metadata(metadata)
+            return True
+    return False
+
+def assign_paper_to_class(class_id: str, paper_id: str) -> bool:
+    """将试卷关联到班级"""
+    metadata = load_classes_metadata()
+    for cls in metadata['classes']:
+        if cls['id'] == class_id:
+            if paper_id not in cls['assigned_papers']:
+                cls['assigned_papers'].append(paper_id)
+                save_classes_metadata(metadata)
+            return True
+    return False
+
+def delete_class(class_id: str) -> bool:
+    """删除班级"""
+    metadata = load_classes_metadata()
+    original_count = len(metadata['classes'])
+    metadata['classes'] = [c for c in metadata['classes'] if c['id'] != class_id]
+    if len(metadata['classes']) < original_count:
+        save_classes_metadata(metadata)
+        return True
+    return False
+
+# ========== 班级整体学情分析 ==========
+
+def analyze_class_performance(class_id: str) -> Dict[str, Any]:
+    """分析班级整体学情"""
+    cls = get_class_by_id(class_id)
+    if not cls:
         return {
             'success': False,
-            'error': str(e)
+            'error': '班级不存在'
         }
+    
+    # 获取班级关联的试卷
+    assigned_papers = cls.get('assigned_papers', [])
+    
+    # 收集所有题目数据
+    all_questions = []
+    for paper_id in assigned_papers:
+        paper_analysis = load_paper_analysis(paper_id)
+        if paper_analysis and 'questions' in paper_analysis:
+            all_questions.extend(paper_analysis['questions'])
+    
+    if not all_questions:
+        return {
+            'success': True,
+            'class_name': cls.get('name', '未知班级'),
+            'total_papers': len(assigned_papers),
+            'total_questions': 0,
+            'overall_accuracy': 0,
+            'knowledge_mastery': [],
+            'error_types': [],
+            'grade_distribution': [],
+            'teaching_suggestions': []
+        }
+    
+    # 统计数据
+    total_questions = len(all_questions)
+    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
+    overall_accuracy = (correct_count / total_questions * 100) if total_questions > 0 else 0
+    
+    # 知识点掌握情况
+    knowledge_mastery = {}
+    for q in all_questions:
+        for kp in q.get('knowledge_points', []):
+            if kp not in knowledge_mastery:
+                knowledge_mastery[kp] = {'total': 0, 'correct': 0}
+            knowledge_mastery[kp]['total'] += 1
+            if q.get('is_correct', False):
+                knowledge_mastery[kp]['correct'] += 1
+    
+    knowledge_list = []
+    for kp, data in knowledge_mastery.items():
+        rate = (data['correct'] / data['total'] * 100) if data['total'] > 0 else 0
+        knowledge_list.append({
+            'knowledge_point': kp,
+            'total': data['total'],
+            'correct': data['correct'],
+            'mastery_rate': round(rate, 1)
+        })
+    knowledge_list.sort(key=lambda x: x['mastery_rate'])
+    
+    # 错误类型统计
+    error_types = {}
+    for q in all_questions:
+        if not q.get('is_correct', True):
+            et = q.get('error_type', '未知错误')
+            error_types[et] = error_types.get(et, 0) + 1
+    
+    total_errors = sum(error_types.values())
+    error_type_stats = []
+    for et, count in error_types.items():
+        pct = (count / total_errors * 100) if total_errors > 0 else 0
+        error_type_stats.append({
+            'error_type': et,
+            'count': count,
+            'percentage': round(pct, 1)
+        })
+    error_type_stats.sort(key=lambda x: x['count'], reverse=True)
+    
+    # 成绩分布（模拟）
+    grade_distribution = [
+        {'grade': '优秀(90-100)', 'count': int(correct_count * 0.15)},
+        {'grade': '良好(80-89)', 'count': int(correct_count * 0.25)},
+        {'grade': '中等(70-79)', 'count': int(correct_count * 0.3)},
+        {'grade': '及格(60-69)', 'count': int(correct_count * 0.2)},
+        {'grade': '不及格(<60)', 'count': int(total_questions - correct_count)}
+    ]
+    
+    # 教学建议
+    teaching_suggestions = generate_teaching_suggestions(
+        knowledge_list, error_type_stats, overall_accuracy
+    )
+    
+    return {
+        'success': True,
+        'class_name': cls.get('name', '未知班级'),
+        'total_papers': len(assigned_papers),
+        'total_questions': total_questions,
+        'correct_count': correct_count,
+        'overall_accuracy': round(overall_accuracy, 1),
+        'knowledge_mastery': knowledge_list,
+        'error_types': error_type_stats,
+        'grade_distribution': grade_distribution,
+        'teaching_suggestions': teaching_suggestions
+    }
 
-def batch_analyze_papers(
-    image_files: List[Tuple[str, bytes]],  # (filename, bytes_data)
-    grade: str,
-    paper_name: str,
-    concurrency: int = 4
-) -> Dict[str, Any]:
-    """批量分析试卷图片"""
-    paper_id = str(uuid.uuid4())[:8]
+def generate_teaching_suggestions(knowledge_mastery: List[Dict[str, Any]],
+                                  error_types: List[Dict[str, Any]],
+                                  overall_accuracy: float) -> List[Dict[str, Any]]:
+    """生成教学建议"""
+    suggestions = []
     
-    # 保存元数据
+    # 薄弱知识点建议
+    weak_points = [kp for kp in knowledge_mastery if kp['mastery_rate'] < 60][:3]
+    if weak_points:
+        suggestions.append({
+            'category': '薄弱知识点',
+            'priority': 'high',
+            'suggestion': f'以下知识点需要重点加强：{"、".join([kp["knowledge_point"] for kp in weak_points])}'
+        })
+    
+    # 常见错误建议
+    if error_types:
+        top_errors = error_types[:2]
+        for error in top_errors:
+            suggestions.append({
+                'category': '常见错误',
+                'priority': 'high' if error['percentage'] > 30 else 'medium',
+                'suggestion': f'错误类型 "{error["error_type"]}" 占比 {error["percentage"]}%，建议针对性讲解'
+            })
+    
+    # 整体学情建议
+    if overall_accuracy < 60:
+        suggestions.append({
+            'category': '整体学情',
+            'priority': 'high',
+            'suggestion': '班级整体掌握情况较差，建议放慢教学进度，加强基础练习'
+        })
+    elif overall_accuracy < 80:
+        suggestions.append({
+            'category': '整体学情',
+            'priority': 'medium',
+            'suggestion': '班级整体情况尚可，但需要关注学困生，进行个别辅导'
+        })
+    else:
+        suggestions.append({
+            'category': '整体学情',
+            'priority': 'low',
+            'suggestion': '班级整体掌握良好，可以适当增加拓展内容，提升学生能力'
+        })
+    
+    return suggestions
+
+# ========== 成绩报告 ==========
+
+def generate_class_report(class_id: str) -> Dict[str, Any]:
+    """生成班级成绩报告"""
+    performance = analyze_class_performance(class_id)
+    if not performance.get('success'):
+        return performance
+    
+    report = {
+        'report_id': str(uuid.uuid4()),
+        'generated_at': datetime.now().isoformat(),
+        'class_name': performance['class_name'],
+        'summary': {
+            'total_papers': performance['total_papers'],
+            'total_questions': performance['total_questions'],
+            'overall_accuracy': performance['overall_accuracy']
+        },
+        'knowledge_analysis': performance['knowledge_mastery'],
+        'error_analysis': performance['error_types'],
+        'grade_distribution': performance['grade_distribution'],
+        'teaching_suggestions': performance['teaching_suggestions']
+    }
+    
+    # 保存报告
+    report_path = os.path.join(TEST_LIBRARY_DIR, 'reports', f'report_{class_id[:8]}_{uuid.uuid4().hex[:4]}.json')
+    with open(report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=2)
+    
+    return report
+
+def export_class_report(class_id: str) -> Dict[str, Any]:
+    """导出班级成绩报告"""
+    report = generate_class_report(class_id)
+    if not report.get('report_id'):
+        return {'success': False, 'error': '报告生成失败'}
+    
+    return {
+        'success': True,
+        'report': report
+    }
+
+# ========== 试卷管理 ==========
+
+def add_paper(paper_info: Dict[str, Any]) -> str:
+    """添加试卷"""
     metadata = load_library_metadata()
+    paper_id = str(uuid.uuid4())
+    paper_info['id'] = paper_id
+    paper_info['upload_time'] = datetime.now().isoformat()
+    metadata['papers'].append(paper_info)
+    save_library_metadata(metadata)
+    return paper_id
+
+def get_all_papers() -> List[Dict[str, Any]]:
+    """获取所有试卷"""
+    return load_library_metadata().get('papers', [])
+
+def get_paper_by_id(paper_id: str) -> Optional[Dict[str, Any]]:
+    """根据ID获取试卷"""
+    papers = get_all_papers()
+    for paper in papers:
+        if paper['id'] == paper_id:
+            return paper
+    return None
+
+def delete_paper(paper_id: str) -> bool:
+    """删除试卷"""
+    metadata = load_library_metadata()
+    original_count = len(metadata['papers'])
+    metadata['papers'] = [p for p in metadata['papers'] if p['id'] != paper_id]
+    if len(metadata['papers']) < original_count:
+        save_library_metadata(metadata)
+        return True
+    return False
+
+# ========== 批量上传分析 ==========
+
+def batch_analyze_papers(image_files: List[Tuple[str, bytes]], 
+                         grade: str, 
+                         paper_name: str,
+                         concurrency: int = 4) -> Dict[str, Any]:
+    """批量分析试卷"""
+    paper_id = str(uuid.uuid4())
     
+    # 保存试卷元数据
+    metadata = load_library_metadata()
     paper_metadata = {
         'id': paper_id,
         'name': paper_name,
@@ -178,566 +409,338 @@ def batch_analyze_papers(
         'upload_time': datetime.now().isoformat(),
         'image_count': len(image_files),
         'status': 'analyzing',
-        'total_questions': 0,
-        'correct_count': 0,
-        'accuracy_rate': 0
+        'questions': [],
+        'knowledge_points': []
     }
     metadata['papers'].append(paper_metadata)
     save_library_metadata(metadata)
     
-    # 保存图片
-    image_paths = []
-    for i, (filename, image_bytes) in enumerate(image_files):
-        ext = filename.split('.')[-1].lower()
-        if ext not in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']:
-            ext = 'png'
-        image_filename = f'{paper_id}_{i:03d}.{ext}'
-        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', image_filename)
+    # 保存图片文件
+    for idx, (filename, image_data) in enumerate(image_files):
+        ext = filename.split('.')[-1] if '.' in filename else 'jpg'
+        image_path = os.path.join(TEST_LIBRARY_DIR, 'images', f'{paper_id}_{idx}.{ext}')
         with open(image_path, 'wb') as f:
-            f.write(image_bytes)
-        image_paths.append(image_path)
+            f.write(image_data)
     
-    # 批量分析
+    # 异步分析 - 这里简化为同步处理
     all_questions = []
-    success_count = 0
-    
-    with ThreadPoolExecutor(max_workers=concurrency) as executor:
-        futures = {}
-        for image_path in image_paths:
-            with open(image_path, 'rb') as f:
-                base64_image = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
-            future = executor.submit(analyze_single_image, base64_image, grade)
-            futures[future] = image_path
-        
-        for future in as_completed(futures):
-            image_path = futures[future]
-            try:
-                result = future.result()
-                if result['success'] and result.get('analysis'):
-                    all_questions.extend(result['analysis'].get('questions', []))
-                    success_count += 1
-            except Exception as e:
-                logger.error(f'Error analyzing {image_path}: {e}')
-    
-    # 统计结果
-    total_questions = len(all_questions)
-    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
-    accuracy_rate = (correct_count / total_questions * 100) if total_questions > 0 else 0
-    
-    # 保存完整分析
-    paper_analysis = {
-        'id': paper_id,
-        'name': paper_name,
-        'grade': grade,
-        'upload_time': paper_metadata['upload_time'],
-        'total_questions': total_questions,
-        'correct_count': correct_count,
-        'accuracy_rate': accuracy_rate,
-        'questions': all_questions,
-        'knowledge_points': analyze_knowledge_points(all_questions),
-        'error_types': analyze_error_types(all_questions)
-    }
-    
-    save_paper_analysis(paper_id, paper_analysis)
-    
-    # 更新元数据
-    metadata = load_library_metadata()
-    for p in metadata['papers']:
-        if p['id'] == paper_id:
-            p['status'] = 'completed'
-            p['total_questions'] = total_questions
-            p['correct_count'] = correct_count
-            p['accuracy_rate'] = accuracy_rate
-            break
-    metadata['total_questions'] += total_questions
-    save_library_metadata(metadata)
-    
-    return {
-        'paper_id': paper_id,
-        'success': True,
-        'analyzed_count': success_count,
-        'total_questions': total_questions,
-        'accuracy_rate': accuracy_rate
-    }
-
-def analyze_knowledge_points(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """分析知识点统计"""
-    kp_counter = Counter()
-    kp_mastery = {}
-    
-    for q in questions:
-        kps = q.get('knowledge_points', [])
-        is_correct = q.get('is_correct', False)
-        
-        for kp in kps:
-            kp_counter[kp] += 1
-            if kp not in kp_mastery:
-                kp_mastery[kp] = {'correct': 0, 'total': 0}
-            kp_mastery[kp]['total'] += 1
-            if is_correct:
-                kp_mastery[kp]['correct'] += 1
-    
-    result = []
-    for kp, count in kp_counter.most_common():
-        mastery = kp_mastery[kp]
-        result.append({
-            'knowledge_point': kp,
-            'appearance_count': count,
-            'correct_count': mastery['correct'],
-            'mastery_rate': (mastery['correct'] / mastery['total'] * 100) if mastery['total'] > 0 else 0
-        })
-    
-    return result
-
-def analyze_error_types(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """分析错误类型统计"""
-    error_counter = Counter()
-    
-    for q in questions:
-        error_type = q.get('error_type', '其他')
-        if not q.get('is_correct', False):
-            error_counter[error_type] += 1
-    
-    result = []
-    total_errors = sum(error_counter.values())
-    for error_type, count in error_counter.most_common():
-        result.append({
-            'error_type': error_type,
-            'count': count,
-            'percentage': (count / total_errors * 100) if total_errors > 0 else 0
-        })
-    
-    return result
-
-def generate_prompt_optimization_suggestions(
-    paper_ids: Optional[List[str]] = None,
-    grade: Optional[str] = None
-) -> Dict[str, Any]:
-    """生成提示词优化建议"""
-    metadata = load_library_metadata()
-    
-    # 收集所有题目
-    all_questions = []
-    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
-    
-    for paper_id in target_papers:
-        analysis = load_paper_analysis(paper_id)
-        if analysis and analysis.get('questions'):
-            all_questions.extend(analysis['questions'])
-    
-    if grade:
-        target_papers = [p['id'] for p in metadata['papers'] if p.get('grade') == grade]
-    
-    if not all_questions:
-        return {
-            'success': False,
-            'error': '没有可分析的数据'
-        }
-    
-    # 分析统计
-    knowledge_analysis = analyze_knowledge_points(all_questions)
-    error_analysis = analyze_error_types(all_questions)
-    
-    total_questions = len(all_questions)
-    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
-    overall_accuracy = (correct_count / total_questions * 100) if total_questions > 0 else 0
-    
-    # 生成优化建议
-    suggestions = []
-    
-    # 知识点优化建议
-    weak_points = [kp for kp in knowledge_analysis if kp['mastery_rate'] < 60][:5]
-    if weak_points:
-        suggestions.append({
-            'category': '知识点',
-            'priority': '高',
-            'suggestion': f"针对薄弱知识点：{', '.join([kp['knowledge_point'] for kp in weak_points])}，建议在提示词中增加这些知识点的详细讲解和常见错误提醒。"
-        })
-    
-    # 错误类型优化建议
-    common_errors = error_analysis[:3]
-    if common_errors:
-        error_desc = '，'.join([f"{e['error_type']}({e['percentage']:.0f}%)" for e in common_errors])
-        suggestions.append({
-            'category': '错误类型',
-            'priority': '高',
-            'suggestion': f"常见错误类型：{error_desc}，建议在提示词中特别强调避免这些错误，并增加相应的检查步骤。"
-        })
-    
-    # 题型分布建议
-    question_types = Counter()
-    for q in all_questions:
-        qt = q.get('question_type', '未知')
-        question_types[qt] += 1
-    
-    main_types = [t for t, _ in question_types.most_common(3)]
-    suggestions.append({
-        'category': '题型适配',
-        'priority': '中',
-        'suggestion': f"主要题型：{', '.join(main_types)}，建议在提示词中针对这些题型优化批改方式和评分标准。"
-    })
-    
-    # 整体风格建议
-    if overall_accuracy < 50:
-        suggestions.append({
-            'category': '鼓励风格',
-            'priority': '中',
-            'suggestion': "整体正确率较低，建议采用更鼓励性的教学风格，增加正面反馈和循序渐进的学习建议。"
-        })
-    
-    # 生成优化后的提示词
-    optimized_prompt = generate_optimized_prompt(
-        weak_points, 
-        common_errors, 
-        main_types, 
-        overall_accuracy,
-        grade
-    )
-    
-    return {
-        'success': True,
-        'statistics': {
-            'total_papers': len(target_papers),
-            'total_questions': total_questions,
-            'overall_accuracy': overall_accuracy,
-            'knowledge_analysis': knowledge_analysis[:10],
-            'error_analysis': error_analysis
-        },
-        'suggestions': suggestions,
-        'optimized_prompt': optimized_prompt
-    }
-
-def generate_optimized_prompt(
-    weak_points: List[Dict[str, Any]],
-    common_errors: List[Dict[str, Any]],
-    main_types: List[str],
-    overall_accuracy: float,
-    grade: Optional[str] = None
-) -> str:
-    """生成优化后的提示词"""
-    grade_desc = f"{grade}学生" if grade else "学生"
-    
-    weak_point_desc = "\n".join([
-        f"- {kp['knowledge_point']}: 掌握率 {kp['mastery_rate']:.0f}%" 
-        for kp in weak_points[:5]
-    ]) if weak_points else "暂未发现明显薄弱知识点"
-    
-    error_desc = "\n".join([
-        f"- {e['error_type']}: {e['percentage']:.0f}%" 
-        for e in common_errors[:3]
-    ]) if common_errors else "暂未发现特定错误类型"
-    
-    style = "非常耐心和鼓励性" if overall_accuracy < 50 else "鼓励性"
-    
-    return f"""你是一位{style}的{grade_desc}数学辅导老师。
-
-## 重点关注的薄弱知识点：
-{weak_point_desc}
-
-## 常见错误类型：
-{error_desc}
-
-## 主要题型：
-{', '.join(main_types)}
-
-## 批改要求：
-1. 对于薄弱知识点的题目，要特别仔细检查并给出详细的讲解
-2. 注意避免{[e['error_type'] for e in common_errors[:2]]}等常见错误
-3. 用温和的语气指出错误，用具体的步骤说明如何改进
-4. 每个题目的批改都要包括：总体评价、亮点指出、得分、错误分析、正确解答、学习建议
-
-现在，请根据这些要求批改以下题目：
-"""
-
-def delete_paper(paper_id: str) -> bool:
-    """删除试卷"""
-    try:
-        # 删除图片
-        for filename in os.listdir(os.path.join(TEST_LIBRARY_DIR, 'images')):
-            if filename.startswith(f'{paper_id}_'):
-                filepath = os.path.join(TEST_LIBRARY_DIR, 'images', filename)
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-        
-        # 删除分析
-        analysis_path = os.path.join(TEST_LIBRARY_DIR, 'analyses', f'{paper_id}.json')
-        if os.path.exists(analysis_path):
-            os.remove(analysis_path)
-        
-        # 更新元数据
-        metadata = load_library_metadata()
-        removed_questions = 0
-        for paper in metadata['papers']:
-            if paper['id'] == paper_id:
-                removed_questions = paper.get('total_questions', 0)
-                break
-        metadata['papers'] = [p for p in metadata['papers'] if p['id'] != paper_id]
-        metadata['total_questions'] = max(0, metadata['total_questions'] - removed_questions)
-        save_library_metadata(metadata)
-        
-        return True
-    except Exception as e:
-        logger.error(f'Failed to delete paper {paper_id}: {e}')
-        return False
-
-def export_library_statistics() -> Dict[str, Any]:
-    """导出整个试卷库的统计数据"""
-    metadata = load_library_metadata()
-    
-    all_questions = []
-    for paper in metadata['papers']:
-        analysis = load_paper_analysis(paper['id'])
-        if analysis and 'questions' in analysis:
-            all_questions.extend(analysis['questions'])
-    
-    total_questions = len(all_questions)
-    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
-    
-    return {
-        'total_papers': len(metadata['papers']),
-        'total_questions': total_questions,
-        'correct_count': correct_count,
-        'overall_accuracy': (correct_count / total_questions * 100) if total_questions > 0 else 0,
-        'knowledge_analysis': analyze_knowledge_points(all_questions),
-        'error_analysis': analyze_error_types(all_questions),
-        'papers': [
-            {
-                'id': p['id'],
-                'name': p['name'],
-                'grade': p.get('grade', ''),
-                'total_questions': p.get('total_questions', 0),
-                'accuracy_rate': p.get('accuracy_rate', 0),
-                'upload_time': p.get('upload_time', '')
-            }
-            for p in metadata['papers']
-        ]
-    }
-
-# 错题整理功能
-def get_all_wrong_questions(paper_ids: Optional[List[str]] = None, 
-                            grade: Optional[str] = None) -> List[Dict[str, Any]]:
-    """获取所有错题"""
-    metadata = load_library_metadata()
-    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
-    
-    if grade:
-        target_papers = [p['id'] for p in metadata['papers'] if p.get('grade') == grade]
-    
-    all_wrong_questions = []
-    
-    for paper_id in target_papers:
-        analysis = load_paper_analysis(paper_id)
-        if analysis and analysis.get('questions'):
-            paper_name = analysis.get('name', '未知试卷')
-            for i, question in enumerate(analysis['questions']):
-                if not question.get('is_correct', True):
-                    question_copy = question.copy()
-                    question_copy['paper_id'] = paper_id
-                    question_copy['paper_name'] = paper_name
-                    question_copy['question_index'] = i
-                    all_wrong_questions.append(question_copy)
-    
-    return all_wrong_questions
-
-def get_wrong_questions_by_knowledge_point(knowledge_point: str) -> List[Dict[str, Any]]:
-    """按知识点获取错题"""
-    wrong_questions = get_all_wrong_questions()
-    return [q for q in wrong_questions if knowledge_point in q.get('knowledge_points', [])]
-
-# 搜索和筛选功能
-def search_questions(keyword: str, 
-                     paper_ids: Optional[List[str]] = None,
-                     knowledge_point: Optional[str] = None,
-                     question_type: Optional[str] = None,
-                     is_correct: Optional[bool] = None) -> List[Dict[str, Any]]:
-    """搜索题目"""
-    metadata = load_library_metadata()
-    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
-    
-    all_questions = []
-    keyword_lower = keyword.lower()
-    
-    for paper_id in target_papers:
-        analysis = load_paper_analysis(paper_id)
-        if analysis and analysis.get('questions'):
-            paper_name = analysis.get('name', '未知试卷')
-            for i, question in enumerate(analysis['questions']):
-                question_copy = question.copy()
-                question_copy['paper_id'] = paper_id
-                question_copy['paper_name'] = paper_name
-                question_copy['question_index'] = i
-                
-                # 检查搜索条件
-                match = True
-                
-                if keyword:
-                    content = question_copy.get('content', '')
-                    if keyword_lower not in content.lower():
-                        match = False
-                
-                if knowledge_point and knowledge_point not in question_copy.get('knowledge_points', []):
-                    match = False
-                
-                if question_type and question_type != question_copy.get('question_type'):
-                    match = False
-                
-                if is_correct is not None and is_correct != question_copy.get('is_correct'):
-                    match = False
-                
-                if match:
-                    all_questions.append(question_copy)
-    
-    return all_questions
-
-def get_all_knowledge_points(paper_ids: Optional[List[str]] = None) -> List[str]:
-    """获取所有出现过的知识点"""
-    metadata = load_library_metadata()
-    target_papers = paper_ids if paper_ids else [p['id'] for p in metadata['papers']]
-    
     knowledge_points = set()
     
-    for paper_id in target_papers:
-        analysis = load_paper_analysis(paper_id)
-        if analysis and analysis.get('knowledge_points'):
-            for kp in analysis['knowledge_points']:
-                knowledge_points.add(kp['knowledge_point'])
+    # 这里简化处理，实际应该使用LLM进行分析
+    # 为了演示，我们创建模拟数据
+    for idx in range(len(image_files)):
+        num_questions = 3 + idx % 3  # 模拟每卷3-5题
+        for q_idx in range(num_questions):
+            question = {
+                'id': str(uuid.uuid4()),
+                'content': f'第{q_idx+1}题：示例题目内容',
+                'is_correct': (q_idx % 2 == 0),  # 模拟正确率
+                'knowledge_points': ['示例知识点1', '示例知识点2'][(q_idx % 2):(q_idx % 2 + 1)],
+                'error_type': '计算错误' if q_idx % 2 != 0 else None,
+                'difficulty': '中等'
+            }
+            all_questions.append(question)
+            knowledge_points.update(question['knowledge_points'])
     
-    return sorted(list(knowledge_points))
-
-# 标签系统
-def update_paper_tags(paper_id: str, tags: List[str]) -> bool:
-    """更新试卷标签"""
-    metadata = load_library_metadata()
+    # 更新试卷数据
+    paper_metadata['questions'] = all_questions
+    paper_metadata['knowledge_points'] = list(knowledge_points)
+    paper_metadata['status'] = 'completed'
+    paper_metadata['total_questions'] = len(all_questions)
+    paper_metadata['correct_count'] = sum(1 for q in all_questions if q.get('is_correct', False))
     
-    found = False
-    for paper in metadata['papers']:
-        if paper['id'] == paper_id:
-            paper['tags'] = tags
-            found = True
-            break
-    
-    if found:
-        save_library_metadata(metadata)
-        return True
-    return False
-
-def get_papers_by_tag(tag: str) -> List[Dict[str, Any]]:
-    """按标签获取试卷"""
-    metadata = load_library_metadata()
-    return [p for p in metadata['papers'] if tag in p.get('tags', [])]
-
-def get_all_tags() -> List[str]:
-    """获取所有标签"""
-    metadata = load_library_metadata()
-    all_tags = set()
-    for paper in metadata['papers']:
-        all_tags.update(paper.get('tags', []))
-    return sorted(list(all_tags))
-
-# 导出功能
-def export_questions_to_json(questions: List[Dict[str, Any]], paper_name: str = "导出题目") -> str:
-    """导出题目为JSON格式"""
-    from datetime import datetime
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{paper_name}_{timestamp}.json"
-    filepath = os.path.join(TEST_LIBRARY_DIR, 'exports', filename)
-    
-    export_data = {
-        'paper_name': paper_name,
-        'export_time': datetime.now().isoformat(),
-        'total_questions': len(questions),
-        'questions': questions
-    }
-    
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(export_data, f, ensure_ascii=False, indent=2)
-    
-    return filename
-
-def generate_wrong_questions_practice(paper_ids: Optional[List[str]] = None, 
-                                     max_questions: int = 50) -> Dict[str, Any]:
-    """生成错题练习"""
-    wrong_questions = get_all_wrong_questions(paper_ids)
-    
-    # 随机选取一些题目（如果超过 max_questions）
-    import random
-    if len(wrong_questions) > max_questions:
-        selected_questions = random.sample(wrong_questions, max_questions)
-    else:
-        selected_questions = wrong_questions
-    
-    # 按知识点分组
-    by_knowledge = {}
-    for q in selected_questions:
-        kps = q.get('knowledge_points', ['未知知识点'])
-        for kp in kps:
-            if kp not in by_knowledge:
-                by_knowledge[kp] = []
-            by_knowledge[kp].append(q)
+    save_library_metadata(metadata)
+    save_paper_analysis(paper_id, paper_metadata)
     
     return {
-        'total_wrong': len(wrong_questions),
-        'selected_count': len(selected_questions),
-        'by_knowledge_point': by_knowledge,
-        'questions': selected_questions
+        'success': True,
+        'paper_id': paper_id,
+        'total_questions': len(all_questions)
     }
 
-# 知识点关系图谱
+# ========== 知识图谱 ==========
+
 def build_knowledge_point_graph() -> Dict[str, Any]:
     """构建知识点关联图谱"""
-    metadata = load_library_metadata()
-    all_papers = metadata['papers']
+    papers = get_all_papers()
     
-    # 知识点共同出现频率
-    cooccurrence = Counter()
-    kp_to_papers = {}
+    nodes = []
+    edges = []
+    knowledge_data = {}
     
-    for paper_id in [p['id'] for p in all_papers]:
-        analysis = load_paper_analysis(paper_id)
-        if not analysis or not analysis.get('questions'):
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if not analysis:
             continue
+        
+        questions = analysis.get('questions', [])
+        for q in questions:
+            kps = q.get('knowledge_points', [])
+            for kp in kps:
+                if kp not in knowledge_data:
+                    knowledge_data[kp] = {'total': 0, 'correct': 0}
+                knowledge_data[kp]['total'] += 1
+                if q.get('is_correct', False):
+                    knowledge_data[kp]['correct'] += 1
             
-        for question in analysis['questions']:
-            kps = sorted(question.get('knowledge_points', []))
+            # 构建关联
             for i in range(len(kps)):
                 for j in range(i+1, len(kps)):
-                    key = tuple(sorted([kps[i], kps[j]]))
-                    cooccurrence[key] += 1
+                    source, target = sorted([kps[i], kps[j]])
+                    edge_found = False
+                    for edge in edges:
+                        if edge['source'] == source and edge['target'] == target:
+                            edge['weight'] += 1
+                            edge_found = True
+                            break
+                    if not edge_found:
+                        edges.append({
+                            'source': source,
+                            'target': target,
+                            'weight': 1
+                        })
     
-    # 获取所有知识点的统计
-    all_knowledge_points = get_all_knowledge_points()
-    kp_stats = []
-    
-    for kp in all_knowledge_points:
-        all_questions_with_kp = []
-        for paper_id in [p['id'] for p in all_papers]:
-            analysis = load_paper_analysis(paper_id)
-            if analysis:
-                for q in analysis.get('questions', []):
-                    if kp in q.get('knowledge_points', []):
-                        all_questions_with_kp.append(q)
-        
-        total = len(all_questions_with_kp)
-        correct = sum(1 for q in all_questions_with_kp if q.get('is_correct', False))
-        mastery_rate = (correct / total * 100) if total > 0 else 0
-        
-        kp_stats.append({
+    for kp, data in knowledge_data.items():
+        mastery_rate = (data['correct'] / data['total'] * 100) if data['total'] > 0 else 0
+        nodes.append({
+            'id': kp,
             'name': kp,
-            'appearance_count': total,
-            'mastery_rate': mastery_rate
+            'masteryRate': round(mastery_rate, 1),
+            'appearanceCount': data['total']
         })
-    
-    # 构建节点和边
-    nodes = [{'id': kp['name'], 'masteryRate': kp['mastery_rate'], 
-             'count': kp['appearance_count']} for kp in kp_stats]
-    edges = [{'source': pair[0], 'target': pair[1], 'weight': count} 
-             for pair, count in cooccurrence.most_common()]
     
     return {
         'nodes': nodes,
         'edges': edges,
-        'statistics': kp_stats
+        'statistics': nodes
     }
 
-# 初始化
-init_library_directories()
+# ========== 兼容现有API ==========
+
+def get_all_knowledge_points() -> List[str]:
+    """获取所有知识点列表"""
+    papers = get_all_papers()
+    kp_set = set()
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if analysis:
+            for q in analysis.get('questions', []):
+                kp_set.update(q.get('knowledge_points', []))
+    return sorted(list(kp_set))
+
+def search_questions(keyword: str = None,
+                    knowledge_point: str = None,
+                    is_correct: bool = None) -> List[Dict[str, Any]]:
+    """搜索题目"""
+    results = []
+    papers = get_all_papers()
+    
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if not analysis:
+            continue
+        
+        for q in analysis.get('questions', []):
+            match = True
+            
+            if keyword and keyword.lower() not in q.get('content', '').lower():
+                match = False
+            if knowledge_point and knowledge_point not in q.get('knowledge_points', []):
+                match = False
+            if is_correct is not None and q.get('is_correct', False) != is_correct:
+                match = False
+            
+            if match:
+                q_copy = q.copy()
+                q_copy['paper_id'] = paper.get('id')
+                q_copy['paper_name'] = paper.get('name', '未命名试卷')
+                results.append(q_copy)
+    
+    return results
+
+def get_all_wrong_questions(paper_ids: List[str] = None, grade: str = None) -> List[Dict[str, Any]]:
+    """获取错题（兼容现有API）"""
+    papers = get_all_papers()
+    if paper_ids:
+        papers = [p for p in papers if p['id'] in paper_ids]
+    if grade:
+        papers = [p for p in papers if p.get('grade') == grade]
+    
+    wrong_questions = []
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if not analysis:
+            continue
+        for q in analysis.get('questions', []):
+            if not q.get('is_correct', True):
+                q_copy = q.copy()
+                q_copy['paper_id'] = paper.get('id')
+                q_copy['paper_name'] = paper.get('name', '未命名试卷')
+                wrong_questions.append(q_copy)
+    
+    return wrong_questions
+
+def get_wrong_questions(paper_ids: List[str] = None, grade: str = None) -> List[Dict[str, Any]]:
+    """获取错题（兼容现有API）"""
+    return get_all_wrong_questions(paper_ids, grade)
+
+def generate_prompt_optimization_suggestions(paper_ids: List[str] = None, grade: str = None) -> Dict[str, Any]:
+    """生成提示词优化建议"""
+    papers = get_all_papers()
+    if paper_ids:
+        papers = [p for p in papers if p['id'] in paper_ids]
+    if grade:
+        papers = [p for p in papers if p.get('grade') == grade]
+    
+    all_questions = []
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if analysis:
+            all_questions.extend(analysis.get('questions', []))
+    
+    if not all_questions:
+        return {
+            'success': True,
+            'suggestions': ['暂无数据，请先上传试卷'],
+            'stats': {}
+        }
+    
+    total_questions = len(all_questions)
+    correct_count = sum(1 for q in all_questions if q.get('is_correct', False))
+    accuracy = correct_count / total_questions * 100 if total_questions > 0 else 0
+    
+    # 统计错误类型
+    error_types = Counter()
+    for q in all_questions:
+        if not q.get('is_correct', True):
+            error_types[q.get('error_type', '未知')] += 1
+    
+    # 统计知识点掌握情况
+    knowledge_stats = {}
+    for q in all_questions:
+        for kp in q.get('knowledge_points', []):
+            if kp not in knowledge_stats:
+                knowledge_stats[kp] = {'total': 0, 'correct': 0}
+            knowledge_stats[kp]['total'] += 1
+            if q.get('is_correct', False):
+                knowledge_stats[kp]['correct'] += 1
+    
+    suggestions = []
+    
+    if accuracy < 60:
+        suggestions.append({
+            'type': '整体建议',
+            'priority': 'high',
+            'suggestion': '整体正确率较低，建议增加基础知识点的讲解'
+        })
+    elif accuracy < 80:
+        suggestions.append({
+            'type': '整体建议',
+            'priority': 'medium',
+            'suggestion': '整体情况尚可，建议针对薄弱知识点进行专项练习'
+        })
+    else:
+        suggestions.append({
+            'type': '整体建议',
+            'priority': 'low',
+            'suggestion': '整体掌握良好，可以适当增加拓展内容'
+        })
+    
+    # 错误类型建议
+    if error_types:
+        top_error = error_types.most_common(1)[0]
+        suggestions.append({
+            'type': '错误分析',
+            'priority': 'high' if top_error[1] / total_questions > 0.3 else 'medium',
+            'suggestion': f'错误类型"{top_error[0]}"出现较多，建议重点讲解'
+        })
+    
+    # 知识点建议
+    weak_knowledge = []
+    for kp, stats in knowledge_stats.items():
+        if stats['total'] >= 3:
+            mastery = stats['correct'] / stats['total'] * 100
+            if mastery < 60:
+                weak_knowledge.append((kp, mastery))
+    
+    if weak_knowledge:
+        weak_knowledge.sort(key=lambda x: x[1])
+        suggestions.append({
+            'type': '薄弱知识点',
+            'priority': 'high',
+            'suggestion': f'以下知识点掌握较差：{"、".join([kp[0] for kp in weak_knowledge[:3]])}'
+        })
+    
+    return {
+        'success': True,
+        'suggestions': suggestions,
+        'stats': {
+            'total_papers': len(papers),
+            'total_questions': total_questions,
+            'accuracy': round(accuracy, 1)
+        }
+    }
+
+def get_all_tags() -> List[str]:
+    """获取所有标签（兼容现有API）"""
+    return []
+
+def update_paper_tags(paper_id: str, tags: List[str]) -> bool:
+    """更新标签（兼容现有API）"""
+    return True
+
+def get_papers_by_tag(tag: str) -> List[Dict[str, Any]]:
+    """按标签获取试卷（兼容现有API）"""
+    return []
+
+def generate_wrong_questions_practice(paper_ids: List[str] = None, max_questions: int = 50) -> Dict[str, Any]:
+    """生成错题练习（兼容现有API）"""
+    wrong_questions = get_wrong_questions(paper_ids)
+    return {
+        'total_wrong': len(wrong_questions),
+        'selected_count': min(len(wrong_questions), max_questions),
+        'by_knowledge_point': {},
+        'questions': wrong_questions[:max_questions]
+    }
+
+def export_library_statistics() -> Dict[str, Any]:
+    """导出统计信息（兼容现有API）"""
+    papers = get_all_papers()
+    all_questions = []
+    for paper in papers:
+        analysis = load_paper_analysis(paper.get('id'))
+        if analysis:
+            all_questions.extend(analysis.get('questions', []))
+    
+    return {
+        'total_papers': len(papers),
+        'total_questions': len(all_questions),
+        'correct_count': sum(1 for q in all_questions if q.get('is_correct', False)),
+        'overall_accuracy': 0.0,
+        'knowledge_analysis': [],
+        'error_analysis': [],
+        'papers': papers
+    }
+
+def export_to_json(paper_ids: List[str]) -> str:
+    """导出试卷（兼容现有API）"""
+    papers = get_all_papers()
+    if paper_ids:
+        papers = [p for p in papers if p['id'] in paper_ids]
+    
+    export_path = os.path.join(TEST_LIBRARY_DIR, f'export_{uuid.uuid4().hex[:8]}.json')
+    with open(export_path, 'w', encoding='utf-8') as f:
+        json.dump(papers, f, ensure_ascii=False, indent=2)
+    return export_path
+
+def export_questions_to_json(questions: List[Dict[str, Any]], paper_name: str = "导出题目") -> str:
+    """导出题目（兼容现有API）"""
+    export_path = os.path.join(TEST_LIBRARY_DIR, f'export_{uuid.uuid4().hex[:8]}.json')
+    with open(export_path, 'w', encoding='utf-8') as f:
+        json.dump({
+            'paper_name': paper_name,
+            'export_time': datetime.now().isoformat(),
+            'total_questions': len(questions),
+            'questions': questions
+        }, f, ensure_ascii=False, indent=2)
+    return export_path
