@@ -1733,6 +1733,19 @@ def create_exam():
         logger.error(f'创建考试失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/exams/<exam_id>/scores', methods=['POST'])
+@admin_required
+def add_exam_score(exam_id):
+    """添加考试成绩"""
+    try:
+        data = request.get_json() or {}
+        
+        result = test_library.add_exam_score(exam_id, data)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'添加成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/exams/<exam_id>', methods=['GET'])
 @track_request_stats
 def get_exam(exam_id):

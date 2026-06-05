@@ -355,6 +355,45 @@ def create_exam(exam_data: Dict[str, Any]) -> Dict[str, Any]:
     
     return {'success': True, 'exam_id': exam_id, 'exam': exam}
 
+def add_exam_score(exam_id: str, score_data: Dict[str, Any]) -> Dict[str, Any]:
+    """添加考试成绩到考试"""
+    metadata = load_exams_metadata()
+    
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            # 检查是否已有该学生的成绩
+            student_number = score_data.get('student_number')
+            for existing in exam['scores']:
+                if existing.get('student_number') == student_number:
+                    # 更新已有成绩
+                    existing.update({
+                        'student_name': score_data.get('student_name', existing.get('student_name')),
+                        'total_score': float(score_data.get('total_score', 0)),
+                        'max_score': float(score_data.get('max_score', exam.get('total_score', 100))),
+                        'accuracy': score_data.get('accuracy', 0),
+                        'updated_at': datetime.now().isoformat()
+                    })
+                    save_exams_metadata(metadata)
+                    return {'success': True, 'message': '成绩已更新'}
+            
+            # 添加新成绩
+            new_score = {
+                'student_number': student_number,
+                'student_name': score_data.get('student_name', '未知'),
+                'total_score': float(score_data.get('total_score', 0)),
+                'max_score': float(score_data.get('max_score', exam.get('total_score', 100))),
+                'accuracy': score_data.get('accuracy', 0),
+                'student_id': score_data.get('student_id'),
+                'confirmed': False,
+                'adjusted': False,
+                'created_at': datetime.now().isoformat()
+            }
+            exam['scores'].append(new_score)
+            save_exams_metadata(metadata)
+            return {'success': True, 'message': '成绩已添加'}
+    
+    return {'success': False, 'error': '考试不存在'}
+
 def add_question_to_exam(exam_id: str, question_data: Dict[str, Any]) -> bool:
     """添加题目到考试"""
     metadata = load_exams_metadata()
