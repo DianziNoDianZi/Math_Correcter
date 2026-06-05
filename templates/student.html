@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>学生成绩查询 - Math_Correcter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- 头部 -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-indigo-600 mb-2">📚 学生成绩查询</h1>
+            <p class="text-gray-600">输入学号或扫描二维码查询成绩</p>
+        </header>
+        
+        <!-- 查询区域 -->
+        <div id="search-section" class="gradient-bg rounded-2xl shadow-xl p-8 mb-8">
+            <div class="max-w-2xl mx-auto">
+                <div class="bg-white rounded-xl p-6 shadow-lg">
+                    <h2 class="text-xl font-semibold mb-4 text-center">🔍 查询成绩</h2>
+                    
+                    <!-- 查询方式选择 -->
+                    <div class="flex gap-4 mb-6">
+                        <button onclick="setSearchMode('student_id')" id="btn-student-id" 
+                                class="flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white">
+                            📝 输入学号
+                        </button>
+                        <button onclick="setSearchMode('scan')" id="btn-scan"
+                                class="flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">
+                            📷 扫码查询
+                        </button>
+                    </div>
+                    
+                    <!-- 学号输入 -->
+                    <div id="input-student-id" class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">请输入您的学号</label>
+                        <input type="text" id="student-id-input" 
+                               placeholder="请输入学号，例如：2024001"
+                               class="shadow border rounded-lg w-full py-3 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                               onkeypress="if(event.key==='Enter')queryScores()">
+                    </div>
+                    
+                    <!-- 二维码扫描区域 -->
+                    <div id="scan-area" class="hidden mb-4">
+                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                            <div id="qr-reader" class="mx-auto"></div>
+                            <p class="text-gray-500 mt-4">请扫描老师提供的成绩查询二维码</p>
+                        </div>
+                    </div>
+                    
+                    <button onclick="queryScores()" 
+                            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors">
+                        查询成绩 →
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 学生信息展示 -->
+        <div id="student-info" class="hidden mb-8">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center">
+                        <div class="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center text-2xl mr-4">
+                            👤
+                        </div>
+                        <div>
+                            <h2 class="text-2xl font-bold text-gray-800" id="display-name">-</h2>
+                            <p class="text-gray-500" id="display-info">学号：<span id="display-number">-</span></p>
+                        </div>
+                    </div>
+                    <button onclick="logout()" class="text-gray-500 hover:text-gray-700">
+                        退出查询
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 成绩概览 -->
+        <div id="score-overview" class="hidden mb-8">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📊 成绩概览</h3>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-blue-600" id="total-exams">0</div>
+                    <div class="text-sm text-gray-500">参加考试</div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-green-600" id="avg-score">0</div>
+                    <div class="text-sm text-gray-500">平均分</div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-purple-600" id="best-score">0</div>
+                    <div class="text-sm text-gray-500">最高分</div>
+                </div>
+                <div class="bg-white rounded-xl shadow p-4 text-center">
+                    <div class="text-3xl font-bold text-orange-600" id="total-accuracy">0%</div>
+                    <div class="text-sm text-gray-500">平均正确率</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 成绩趋势图 -->
+        <div id="score-chart-section" class="hidden mb-8">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">📈 成绩趋势</h3>
+                <div class="h-64">
+                    <canvas id="scoreChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 知识点掌握情况 -->
+        <div id="knowledge-section" class="hidden mb-8">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">🧠 知识点掌握情况</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- 知识点柱状图 -->
+                    <div>
+                        <canvas id="knowledgeChart"></canvas>
+                    </div>
+                    <!-- 知识点详情列表 -->
+                    <div id="knowledge-list" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 成绩列表 -->
+        <div id="score-list-section" class="hidden mb-8">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">📝 历史成绩</h3>
+            <div id="exam-cards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </div>
+        
+        <!-- 成绩详情模态框 -->
+        <div id="detail-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+            <div class="bg-white rounded-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h2 class="text-2xl font-bold" id="modal-exam-name">考试详情</h2>
+                        <button onclick="closeDetailModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                    </div>
+                    
+                    <!-- 成绩统计 -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="bg-blue-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-blue-600" id="modal-score">-</div>
+                            <div class="text-sm text-gray-500">得分</div>
+                        </div>
+                        <div class="bg-green-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-green-600" id="modal-accuracy">-</div>
+                            <div class="text-sm text-gray-500">正确率</div>
+                        </div>
+                        <div class="bg-purple-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-purple-600" id="modal-rank">-</div>
+                            <div class="text-sm text-gray-500">班级排名</div>
+                        </div>
+                        <div class="bg-orange-50 rounded-lg p-4 text-center">
+                            <div class="text-2xl font-bold text-orange-600" id="modal-status">-</div>
+                            <div class="text-sm text-gray-500">状态</div>
+                        </div>
+                    </div>
+                    
+                    <!-- 题目详情 -->
+                    <h3 class="font-bold text-lg mb-4">📋 题目详情</h3>
+                    <div id="question-details" class="space-y-3"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 加载提示 -->
+        <div id="loading" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+            <div class="bg-white rounded-lg p-8 text-center">
+                <div class="animate-spin text-4xl mb-4">⏳</div>
+                <p class="text-gray-600">正在加载...</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API = '';
+        let currentStudent = null;
+        let scoreChart = null;
+        let knowledgeChart = null;
+        let searchMode = 'student_id';
+        
+        // 设置查询模式
+        function setSearchMode(mode) {
+            searchMode = mode;
+            
+            document.getElementById('btn-student-id').className = 
+                mode === 'student_id' ? 'flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white' 
+                                       : 'flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
+            document.getElementById('btn-scan').className = 
+                mode === 'scan' ? 'flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white'
+                                : 'flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
+            
+            document.getElementById('input-student-id').classList.toggle('hidden', mode !== 'student_id');
+            document.getElementById('scan-area').classList.toggle('hidden', mode !== 'scan');
+        }
+        
+        // 查询成绩
+        async function queryScores() {
+            const studentId = document.getElementById('student-id-input').value.trim();
+            
+            if (!studentId) {
+                alert('请输入学号');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/${studentId}/scores`);
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data.success && data.student) {
+                    currentStudent = data.student;
+                    displayStudentInfo(data.student);
+                    displayOverview(data.overview);
+                    displayScoreList(data.exams);
+                    displayScoreChart(data.overview.chart_data);
+                    displayKnowledgeSection(data.knowledge_stats);
+                } else {
+                    alert('未找到该学号的成绩记录');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('查询失败，请稍后重试');
+                console.error(e);
+            }
+        }
+        
+        // 显示学生信息
+        function displayStudentInfo(student) {
+            document.getElementById('student-info').classList.remove('hidden');
+            document.getElementById('display-name').textContent = student.name || '学生';
+            document.getElementById('display-number').textContent = student.student_number;
+            document.getElementById('search-section').classList.add('hidden');
+        }
+        
+        // 显示成绩概览
+        function displayOverview(overview) {
+            document.getElementById('score-overview').classList.remove('hidden');
+            document.getElementById('total-exams').textContent = overview.total_exams || 0;
+            document.getElementById('avg-score').textContent = (overview.avg_score || 0).toFixed(1);
+            document.getElementById('best-score').textContent = (overview.best_score || 0).toFixed(1);
+            document.getElementById('total-accuracy').textContent = ((overview.avg_accuracy || 0) * 100).toFixed(1) + '%';
+        }
+        
+        // 显示成绩列表
+        function displayScoreList(exams) {
+            document.getElementById('score-list-section').classList.remove('hidden');
+            
+            const container = document.getElementById('exam-cards');
+            container.innerHTML = exams.map(exam => `
+                <div class="bg-white rounded-xl shadow card-hover p-5 cursor-pointer" onclick="showExamDetail('${exam.exam_id}')">
+                    <div class="flex justify-between items-start mb-3">
+                        <h4 class="font-bold text-lg">${exam.exam_name}</h4>
+                        <span class="px-2 py-1 rounded text-xs ${exam.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                            ${exam.status === 'completed' ? '已完成' : '待审核'}
+                        </span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <div class="text-2xl font-bold text-blue-600">${exam.score}/${exam.max_score}</div>
+                            <div class="text-sm text-gray-500">得分</div>
+                        </div>
+                        <div>
+                            <div class="text-2xl font-bold text-green-600">${(exam.accuracy * 100).toFixed(1)}%</div>
+                            <div class="text-sm text-gray-500">正确率</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500">${exam.date || ''}</div>
+                </div>
+            `).join('') || '<p class="text-gray-500 col-span-3">暂无成绩记录</p>';
+        }
+        
+        // 显示成绩趋势图
+        function displayScoreChart(chartData) {
+            if (!chartData || chartData.length === 0) {
+                document.getElementById('score-chart-section').classList.add('hidden');
+                return;
+            }
+            
+            document.getElementById('score-chart-section').classList.remove('hidden');
+            
+            const ctx = document.getElementById('scoreChart').getContext('2d');
+            
+            if (scoreChart) {
+                scoreChart.destroy();
+            }
+            
+            scoreChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.map(d => d.label),
+                    datasets: [{
+                        label: '得分',
+                        data: chartData.map(d => d.score),
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+        }
+        
+        // 显示知识点掌握情况
+        function displayKnowledgeSection(knowledgeData) {
+            if (!knowledgeData || Object.keys(knowledgeData).length === 0) {
+                document.getElementById('knowledge-section').classList.add('hidden');
+                return;
+            }
+            
+            document.getElementById('knowledge-section').classList.remove('hidden');
+            
+            // 柱状图
+            const labels = Object.keys(knowledgeData);
+            const values = labels.map(k => knowledgeData[k].mastery_rate * 100);
+            
+            const ctx = document.getElementById('knowledgeChart').getContext('2d');
+            
+            if (knowledgeChart) {
+                knowledgeChart.destroy();
+            }
+            
+            knowledgeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: '掌握度',
+                        data: values,
+                        backgroundColor: values.map(v => 
+                            v >= 70 ? 'rgba(34, 197, 94, 0.7)' :
+                            v >= 50 ? 'rgba(250, 204, 21, 0.7)' :
+                            'rgba(239, 68, 68, 0.7)'
+                        ),
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+            
+            // 列表
+            const listContainer = document.getElementById('knowledge-list');
+            listContainer.innerHTML = labels
+                .sort((a, b) => knowledgeData[b].mastery_rate - knowledgeData[a].mastery_rate)
+                .map(kp => {
+                    const rate = knowledgeData[kp].mastery_rate * 100;
+                    const color = rate >= 70 ? 'green' : rate >= 50 ? 'yellow' : 'red';
+                    return `
+                        <div class="flex items-center bg-${color}-50 rounded-lg p-3">
+                            <div class="flex-1">
+                                <div class="font-medium">${kp}</div>
+                                <div class="text-sm text-gray-500">
+                                    正确率: ${knowledgeData[kp].correct}/${knowledgeData[kp].total}
+                                </div>
+                            </div>
+                            <div class="text-lg font-bold text-${color}-600">${rate.toFixed(0)}%</div>
+                        </div>
+                    `;
+                }).join('');
+        }
+        
+        // 显示考试详情
+        async function showExamDetail(examId) {
+            if (!currentStudent) return;
+            
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/exam/${examId}`);
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data.success) {
+                    displayExamDetail(data);
+                } else {
+                    alert('获取详情失败');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('获取详情失败');
+            }
+        }
+        
+        function displayExamDetail(data) {
+            const modal = document.getElementById('detail-modal');
+            modal.classList.remove('hidden');
+            
+            document.getElementById('modal-exam-name').textContent = data.exam_name;
+            document.getElementById('modal-score').textContent = `${data.score}/${data.max_score}`;
+            document.getElementById('modal-accuracy').textContent = `${(data.accuracy * 100).toFixed(1)}%`;
+            document.getElementById('modal-rank').textContent = data.rank || '-';
+            document.getElementById('modal-status').textContent = data.confirmed ? '已确认' : '待审核';
+            
+            const questionsContainer = document.getElementById('question-details');
+            questionsContainer.innerHTML = (data.questions || []).map(q => `
+                <div class="border rounded-lg p-4 ${q.is_correct ? 'border-green-300 bg-green-50' : 'border-red-300 bg-red-50'}">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <span class="font-bold">第${q.number}题</span>
+                            <span class="ml-2 text-sm text-gray-500">${q.type}</span>
+                        </div>
+                        <span class="px-2 py-1 rounded text-sm ${q.is_correct ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}">
+                            ${q.is_correct ? '✓ 正确' : '✗ 错误'}
+                        </span>
+                    </div>
+                    <div class="mt-2 text-sm">
+                        ${q.knowledge_points && q.knowledge_points.length > 0 ? 
+                            `<span class="text-gray-600">知识点: ${q.knowledge_points.join(', ')}</span>` : ''}
+                    </div>
+                </div>
+            `).join('') || '<p class="text-gray-500">暂无题目详情</p>';
+        }
+        
+        function closeDetailModal() {
+            document.getElementById('detail-modal').classList.add('hidden');
+        }
+        
+        function logout() {
+            currentStudent = null;
+            document.getElementById('student-info').classList.add('hidden');
+            document.getElementById('score-overview').classList.add('hidden');
+            document.getElementById('score-list-section').classList.add('hidden');
+            document.getElementById('score-chart-section').classList.add('hidden');
+            document.getElementById('knowledge-section').classList.add('hidden');
+            document.getElementById('search-section').classList.remove('hidden');
+            document.getElementById('student-id-input').value = '';
+        }
+        
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+        
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+        
+        // 点击模态框外部关闭
+        document.getElementById('detail-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeDetailModal();
+            }
+        });
+    </script>
+</body>
+</html>

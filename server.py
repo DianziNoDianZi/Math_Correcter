@@ -1946,6 +1946,41 @@ def export_class_scores(class_id):
         logger.error(f'导出班级成绩失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+# ========== 学生端成绩查询API ==========
+
+@app.route('/student')
+def student_portal():
+    """学生成绩查询入口页面"""
+    return render_template('student.html')
+
+@app.route('/api/student/<student_number>/scores')
+def get_student_scores(student_number):
+    """获取学生的所有成绩"""
+    try:
+        result = test_library.get_student_scores_by_number(student_number)
+        
+        if result:
+            return jsonify(result)
+        else:
+            return jsonify({'success': False, 'error': '未找到该学号的成绩记录'}), 404
+    except Exception as e:
+        logger.error(f'获取学生成绩失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/student/<student_number>/exam/<exam_id>')
+def get_student_exam_detail(student_number, exam_id):
+    """获取学生某次考试的详细信息"""
+    try:
+        result = test_library.get_student_exam_detail(student_number, exam_id)
+        
+        if result:
+            return jsonify(result)
+        else:
+            return jsonify({'success': False, 'error': '未找到相关记录'}), 404
+    except Exception as e:
+        logger.error(f'获取考试详情失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # --- 初始化 ---
 _SCANNER_INITIALIZED = False
 _EXECUTOR = None

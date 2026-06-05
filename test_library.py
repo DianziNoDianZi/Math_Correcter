@@ -1290,3 +1290,193 @@ def _export_class_to_excel(cls: Dict, exams: List[Dict], filepath: str) -> Optio
         logger.error(f'班级成绩Excel导出失败: {e}')
         return None
 
+# ========== 学生端成绩查询 ==========
+
+def get_student_scores_by_number(student_number: str) -> Optional[Dict[str, Any]]:
+    """
+    根据学号获取学生所有成绩
+    
+    Args:
+        student_number: 学生学号
+    
+    Returns:
+        学生信息和成绩列表
+    """
+    metadata = load_exams_metadata()
+    student_scores = []
+    student_info = None
+    
+    # 遍历所有考试，收集该学生的成绩
+    for exam in metadata['exams']:
+        for score in exam.get('scores', []):
+            if score.get('student_number') == student_number:
+                # 获取学生基本信息（从第一个匹配的考试中获取）
+                if not student_info:
+                    student_info = {
+                        'student_number': student_number,
+                        'name': score.get('student_name', '未知'),
+                        'class_id': exam.get('class_id'),
+                        'class_name': exam.get('class_name', '')
+                    }
+                
+                student_scores.append({
+                    'exam_id': exam['id'],
+                    'exam_name': exam.get('name', '未知考试'),
+                    'score': score.get('total_score', 0),
+                    'max_score': score.get('max_score', 100),
+                    'accuracy': score.get('accuracy', 0),
+                    'date': exam.get('created_at', ''),
+                    'status': exam.get('status', ''),
+                    'confirmed': score.get('confirmed', False),
+                    'adjusted': score.get('adjusted', False)
+                })
+    
+    if not student_info:
+        return None
+    
+    # 计算概览数据
+    overview = calculate_student_overview(student_scores)
+    
+    # 获取知识点统计
+    knowledge_stats = calculate_student_knowledge_stats(student_number, metadata)
+    
+    return {
+        'success': True,
+        'student': student_info,
+        'exams': student_scores,
+        'overview': overview,
+        'knowledge_stats': knowledge_stats
+    }
+
+def calculate_student_overview(scores: List[Dict]) -> Dict[str, Any]:
+    """计算学生成绩概览"""
+    if not scores:
+        return {
+            'total_exams': 0,
+            'avg_score': 0,
+            'best_score': 0,
+            'avg_accuracy': 0,
+            'chart_data': []
+        }
+    
+    # 按日期排序
+    sorted_scores = sorted(scores, key=lambda x: x.get('date', ''))
+    
+    total_exams = len(scores)
+    avg_score = sum(s['score'] for s in scores) / total_exams
+    best_score = max(s['score'] for s in scores)
+    avg_accuracy = sum(s['accuracy'] for s in scores) / total_exams
+    
+    # 图表数据
+    chart_data = []
+    for i, score in enumerate(sorted_scores[-10:]):  # 只取最近10次
+        chart_data.append({
+            'label': f'考试{i+1}',
+            'score': score['score'],
+            'max_score': score['max_score']
+        })
+    
+    return {
+        'total_exams': total_exams,
+        'avg_score': round(avg_score, 1),
+        'best_score': round(best_score, 1),
+        'avg_accuracy': round(avg_accuracy, 3),
+        'chart_data': chart_data
+    }
+
+def calculate_student_knowledge_stats(student_number: str, metadata: Dict) -> Dict[str, Any]:
+    """计算学生知识点掌握情况"""
+    knowledge_stats = defaultdict(lambda: {'correct': 0, 'total': 0})
+    
+    for exam in metadata['exams']:
+        for score in exam.get('scores', []):
+            if score.get('student_number') == student_number:
+                # 获取该考试的题目知识点信息
+                questions = exam.get('questions', [])
+                results = score.get('results', [])
+                
+                for result in results:
+                    q_number = result.get('number')
+                    # 找到对应的题目知识点
+                    for q in questions:
+                        if q.get('number') == q_number:
+                            kps = q.get('knowledge_points', [])
+                            if not kps:
+                                kps = ['基础题']
+                            
+                            for kp in kps:
+                                knowledge_stats[kp]['total'] += 1
+                                if result.get('is_correct'):
+                                    knowledge_stats[kp]['correct'] += 1
+                            break
+    
+    # 计算掌握度
+    result = {}
+    for kp, stats in knowledge_stats.items():
+        mastery_rate = stats['correct'] / stats['total'] if stats['total'] > 0 else 0
+        result[kp] = {
+            'correct': stats['correct'],
+            'total': stats['total'],
+            'mastery_rate': mastery_rate
+        }
+    
+    return result
+
+def get_student_exam_detail(student_number: str, exam_id: str) -> Optional[Dict[str, Any]]:
+    """获取学生某次考试的详细信息"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return None
+    
+    # 找到该学生的成绩
+    student_score = None
+    for score in exam.get('scores', []):
+        if score.get('student_number') == student_number:
+            student_score = score
+            break
+    
+    if not student_score:
+        return None
+    
+    # 获取班级排名
+    all_scores = sorted(
+        exam.get('scores', []),
+        key=lambda x: x.get('total_score', 0),
+        reverse=True
+    )
+    rank = None
+    for i, s in enumerate(all_scores):
+        if s.get('student_number') == student_number:
+            rank = i + 1
+            break
+    
+    # 获取题目详情
+    questions = exam.get('questions', [])
+    results = student_score.get('results', [])
+    
+    question_details = []
+    for result in results:
+        q_number = result.get('number')
+        q_info = next((q for q in questions if q.get('number') == q_number), {})
+        
+        question_details.append({
+            'number': q_number,
+            'type': q_info.get('type', '未知'),
+            'is_correct': result.get('is_correct', False),
+            'knowledge_points': q_info.get('knowledge_points', [])
+        })
+    
+    return {
+        'success': True,
+        'exam_name': exam.get('name', ''),
+        'score': student_score.get('total_score', 0),
+        'max_score': student_score.get('max_score', 100),
+        'accuracy': student_score.get('accuracy', 0),
+        'rank': rank,
+        'total_students': len(all_scores),
+        'confirmed': student_score.get('confirmed', False),
+        'adjusted': student_score.get('adjusted', False),
+        'questions': question_details
+    }
+
+
