@@ -18,16 +18,22 @@ from flask_cors import CORS
 
 import processor
 import test_library
-from config import get_config, ensure_defaults, save_config, get_models_dict
+from config import get_config, ensure_defaults, save_config, get_models_dict, get_cross_platform_path, validate_batch_upload, validate_file_upload
 from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR
 from processor import _parse_pending_filename, call_llm_api, generate_explanation, call_tts_api
 
+# 线程锁，用于保护全局状态的并发访问
+import threading
+
 # IP封禁列表和请求统计
 ipRequests = {}  # {ip: count}
+ipRequests_lock = threading.Lock()  # 保护ipRequests
 bannedIPs = set()
+bannedIPs_lock = threading.Lock()  # 保护bannedIPs
 
 # 速率限制器
 rateLimitStore = {}  # {ip: deque(timestamps)}
+rateLimitStore_lock = threading.Lock()  # 保护rateLimitStore
 
 # 统计数据
 stats = {
@@ -39,9 +45,11 @@ stats = {
     'failed_requests': 0,
     'processing_times': []
 }
+stats_lock = threading.Lock()  # 保护stats
 
 # 任务模式存储：{query_code: mode}
 task_modes = {}
+task_modes_lock = threading.Lock()  # 保护task_modes
 
 # 初始化全局模型字典
 models_dict = get_models_dict()
@@ -69,19 +77,22 @@ def track_request_stats(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         global stats
-        stats['total_requests'] += 1
         start_time = time.time()
         try:
             result = f(*args, **kwargs)
+            with stats_lock:
+                stats['total_requests'] += 1
             return result
         except Exception as e:
-            stats['failed_requests'] += 1
+            with stats_lock:
+                stats['failed_requests'] += 1
             raise e
         finally:
             processing_time = time.time() - start_time
-            stats['processing_times'].append(processing_time)
-            if len(stats['processing_times']) > 1000:
-                stats['processing_times'] = stats['processing_times'][-1000:]
+            with stats_lock:
+                stats['processing_times'].append(processing_time)
+                if len(stats['processing_times']) > 1000:
+                    stats['processing_times'] = stats['processing_times'][-1000:]
     return wrapper
 
 # 装饰器：速率限制
@@ -94,22 +105,24 @@ def rate_limit(f):
         client_ip = request.remote_addr
         now = time.time()
         
-        if client_ip not in rateLimitStore:
-            rateLimitStore[client_ip] = deque()
+        with rateLimitStore_lock:
+            if client_ip not in rateLimitStore:
+                rateLimitStore[client_ip] = deque()
+            
+            # 清理过期的请求记录
+            while rateLimitStore[client_ip] and now - rateLimitStore[client_ip][0] > RATE_LIMIT_WINDOW:
+                rateLimitStore[client_ip].popleft()
+            
+            # 检查是否超过限制
+            if len(rateLimitStore[client_ip]) >= RATE_LIMIT_MAX:
+                return jsonify({
+                    'error': 'Too many requests',
+                    'retry_after': RATE_LIMIT_WINDOW - (now - rateLimitStore[client_ip][0])
+                }), 429
+            
+            # 记录当前请求
+            rateLimitStore[client_ip].append(now)
         
-        # 清理过期的请求记录
-        while rateLimitStore[client_ip] and now - rateLimitStore[client_ip][0] > RATE_LIMIT_WINDOW:
-            rateLimitStore[client_ip].popleft()
-        
-        # 检查是否超过限制
-        if len(rateLimitStore[client_ip]) >= RATE_LIMIT_MAX:
-            return jsonify({
-                'error': 'Too many requests',
-                'retry_after': RATE_LIMIT_WINDOW - (now - rateLimitStore[client_ip][0])
-            }), 429
-        
-        # 记录当前请求
-        rateLimitStore[client_ip].append(now)
         return f(*args, **kwargs)
     return wrapper
 
@@ -250,9 +263,11 @@ def admin_login():
 def inject_customization():
     # IP统计和封禁检查
     ip = request.remote_addr
-    if ip in bannedIPs:
-        return jsonify({'error': 'IP已被封禁'}), 403
-    ipRequests[ip] = ipRequests.get(ip, 0) + 1
+    with bannedIPs_lock:
+        if ip in bannedIPs:
+            return jsonify({'error': 'IP已被封禁'}), 403
+    with ipRequests_lock:
+        ipRequests[ip] = ipRequests.get(ip, 0) + 1
     
     customization = {'bg_type': 'gradient', 'bg_color1': '#667eea', 'bg_color2': '#764ba2', 'bg_image': '', 'opacity': 100}
     try:
@@ -621,14 +636,19 @@ def admin_logs():
 @app.route('/admin/ip')
 @admin_required
 def ip_management():
-    return render_template('ip_management.html', stats=ipRequests, banned=list(bannedIPs))
+    with ipRequests_lock:
+        stats_copy = ipRequests.copy()
+    with bannedIPs_lock:
+        banned_copy = list(bannedIPs)
+    return render_template('ip_management.html', stats=stats_copy, banned=banned_copy)
 
 @app.route('/admin/ip/ban', methods=['POST'])
 @admin_required
 def ban_ip():
     ip = request.form.get('ip', '').strip()
     if ip:
-        bannedIPs.add(ip)
+        with bannedIPs_lock:
+            bannedIPs.add(ip)
         flash(f'已封禁 IP: {ip}', 'success')
     return redirect(url_for('ip_management'))
 
@@ -636,7 +656,8 @@ def ban_ip():
 @admin_required
 def unban_ip():
     ip = request.form.get('ip', '').strip()
-    if ip and ip in bannedIPs:
+    with bannedIPs_lock:
+        if ip and ip in bannedIPs:
         bannedIPs.discard(ip)
         flash(f'已解封 IP: {ip}', 'success')
     return redirect(url_for('ip_management'))
@@ -764,7 +785,7 @@ def tts_page():
         cfg['tts']['voice'] = request.form.get('voice', 'default')
         cfg['tts']['speed'] = float(request.form.get('speed', 1.0))
         cfg['tts']['model_name'] = request.form.get('model_name', 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice')
-        cfg['tts']['output_dir'] = request.form.get('output_dir', 'D:\\qwen-tts-webui\\core\\outputs').strip()
+        cfg['tts']['output_dir'] = request.form.get('output_dir', 'outputs').strip()
         cfg['tts']['refer_wav'] = request.form.get('refer_wav', '').strip()
         cfg['tts']['prompt_text'] = request.form.get('prompt_text', '').strip()
         cfg['tts']['prompt_language'] = request.form.get('prompt_language', 'zh')
@@ -773,7 +794,7 @@ def tts_page():
         save_config(cfg)
         flash('TTS 设置已保存', 'success')
         return redirect(url_for('tts_page'))
-    tts_cfg = cfg.get('tts', {'enabled': False, 'engine': 'qwen-tts', 'api_base': 'http://127.0.0.1:7860', 'voice': 'default', 'speed': 1.0, 'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', 'output_dir': 'D:\\qwen-tts-webui\\core\\outputs', 'refer_wav': '', 'prompt_text': '', 'prompt_language': 'zh', 'sovits_model': '', 'gpt_model': ''})
+    tts_cfg = cfg.get('tts', {'enabled': False, 'engine': 'qwen-tts', 'api_base': 'http://127.0.0.1:7860', 'voice': 'default', 'speed': 1.0, 'model_name': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice', 'output_dir': 'outputs', 'refer_wav': '', 'prompt_text': '', 'prompt_language': 'zh', 'sovits_model': '', 'gpt_model': ''})
     return render_template('tts_settings.html', tts=tts_cfg)
 
 
@@ -1266,6 +1287,11 @@ def batch_upload_papers():
         
         if work_mode not in ['auto', 'manual_score', 'hybrid']:
             return jsonify({'success': False, 'error': '无效的工作模式'}), 400
+        
+        # 验证文件安全性
+        is_valid, error_msg = validate_batch_upload(files)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error_msg}), 400
         
         # 读取文件内容
         image_files = []
@@ -1771,6 +1797,11 @@ def scan_exam_answer_sheets(exam_id):
         
         if not files:
             return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+        
+        # 验证文件安全性
+        is_valid, error_msg = validate_batch_upload(files)
+        if not is_valid:
+            return jsonify({'success': False, 'error': error_msg}), 400
         
         image_files = []
         for file in files:

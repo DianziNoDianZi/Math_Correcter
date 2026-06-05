@@ -10,7 +10,7 @@ import uuid
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import requests
-from config import get_config, get_models_dict
+from config import get_config, get_models_dict, get_cross_platform_path
 from config import UPLOAD_FOLDER, PENDING_DIR, PROCESSING_DIR, RESULTS_DIR, PAUSE_FLAG_PATH, CANCELLED_DIR
 from datetime import datetime
 import shutil
@@ -207,7 +207,7 @@ def call_tts_api(text, query_code):
     voice = tts_cfg.get('voice', 'default')
     speed = tts_cfg.get('speed', 1.0)
     model_name = tts_cfg.get('model_name', 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice')
-    output_dir = tts_cfg.get('output_dir', 'D:\\qwen-tts-webui\\core\\outputs')
+    output_dir = get_cross_platform_path(tts_cfg.get('output_dir', 'outputs'))
     
     output_path = os.path.join(RESULTS_DIR, f"{query_code}_audio.wav")
     
