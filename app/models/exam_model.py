@@ -110,6 +110,61 @@ class ExamModel(BaseModel):
                 return True
         return False
     
+    def update_question(self, exam_id: str, question_number: int, question_data: Dict[str, Any]) -> bool:
+        """更新某道题目"""
+        data = self._load()
+        for exam in data['exams']:
+            if exam.get('id') == exam_id:
+                for q in exam.get('questions', []):
+                    if q.get('number') == question_number:
+                        q['correct_answer'] = question_data.get('correct_answer', q.get('correct_answer', ''))
+                        q['score'] = question_data.get('score', q.get('score', 5))
+                        q['knowledge_points'] = question_data.get('knowledge_points', q.get('knowledge_points', []))
+                        q['type'] = question_data.get('type', q.get('type', 'choice'))
+                        self._save()
+                        return True
+        return False
+    
+    def delete_question(self, exam_id: str, question_number: int) -> bool:
+        """删除某道题目"""
+        data = self._load()
+        for exam in data['exams']:
+            if exam.get('id') == exam_id:
+                exam['questions'] = [q for q in exam.get('questions', []) if q.get('number') != question_number]
+                self._save()
+                return True
+        return False
+    
+    def clear_questions(self, exam_id: str) -> bool:
+        """清空所有题目"""
+        data = self._load()
+        for exam in data['exams']:
+            if exam.get('id') == exam_id:
+                exam['questions'] = []
+                exam['status'] = 'draft'
+                self._save()
+                return True
+        return False
+    
+    def duplicate_exam(self, exam_id: str, new_name: str = '') -> Optional[Dict[str, Any]]:
+        """复制考试"""
+        data = self._load()
+        for exam in data['exams']:
+            if exam.get('id') == exam_id:
+                import copy
+                new_exam = copy.deepcopy(exam)
+                new_exam['id'] = generate_id()
+                new_exam['name'] = new_name or f"{exam.get('name', '')} (副本)"
+                new_exam['status'] = 'draft'
+                new_exam['scores'] = []
+                new_exam['statistics'] = {}
+                new_exam['created_at'] = get_timestamp()
+                data['exams'].append(new_exam)
+                data['total_exams'] = len(data['exams'])
+                self._save()
+                return new_exam
+        return None
+    
     def add_score(self, exam_id: str, score_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         添加考试成绩

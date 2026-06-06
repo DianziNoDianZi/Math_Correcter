@@ -78,6 +78,33 @@ def init_exam_routes(exam_service):
         result = exam_service.set_ready(exam_id)
         return jsonify(result)
     
+    @exams_bp.route('/<exam_id>/questions/<int:question_number>', methods=['PUT'])
+    def update_question(exam_id, question_number):
+        """更新题目"""
+        data = request.get_json() or {}
+        result = exam_service.update_question(exam_id, question_number, data)
+        return jsonify(result)
+    
+    @exams_bp.route('/<exam_id>/questions/<int:question_number>', methods=['DELETE'])
+    def delete_question(exam_id, question_number):
+        """删除题目"""
+        result = exam_service.delete_question(exam_id, question_number)
+        return jsonify(result)
+    
+    @exams_bp.route('/<exam_id>/questions', methods=['DELETE'])
+    def clear_questions(exam_id):
+        """清空所有题目"""
+        result = exam_service.clear_questions(exam_id)
+        return jsonify(result)
+    
+    @exams_bp.route('/<exam_id>/duplicate', methods=['POST'])
+    def duplicate_exam(exam_id):
+        """复制考试"""
+        data = request.get_json() or {}
+        new_name = data.get('name', '').strip()
+        result = exam_service.duplicate_exam(exam_id, new_name)
+        return jsonify(result)
+    
     @exams_bp.route('/<exam_id>/scores', methods=['POST'])
     def add_score(exam_id):
         """添加成绩"""

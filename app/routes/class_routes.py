@@ -54,4 +54,34 @@ def init_class_routes(class_service):
         result = class_service.remove_student(class_id, student_number)
         return jsonify(result)
     
+    @classes_bp.route('/<class_id>/students/batch', methods=['POST'])
+    def batch_add_students(class_id):
+        """批量导入学生"""
+        data = request.get_json() or {}
+        students = data.get('students', [])
+        if not students:
+            return jsonify({'success': False, 'error': '没有学生数据'}), 400
+        
+        success_count = 0
+        fail_list = []
+        for s in students:
+            name = s.get('name', '').strip()
+            number = s.get('student_number', '').strip()
+            password = s.get('password', '').strip()
+            if not name or not number:
+                fail_list.append(str(s))
+                continue
+            result = class_service.add_student(class_id, name, number, password)
+            if result.get('success'):
+                success_count += 1
+            else:
+                fail_list.append(f"{name}({number})")
+        
+        return jsonify({
+            'success': True,
+            'added': success_count,
+            'failed': len(fail_list),
+            'fail_list': fail_list[:10]
+        })
+    
     return classes_bp

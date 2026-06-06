@@ -67,6 +67,32 @@ class ExamService:
             return {'success': True}
         return {'success': False, 'error': '考试未找到'}
     
+    def update_question(self, exam_id: str, question_number: int,
+                       question_data: Dict[str, Any]) -> Dict[str, Any]:
+        """更新题目"""
+        if self.model.update_question(exam_id, question_number, question_data):
+            return {'success': True}
+        return {'success': False, 'error': '考试或题目未找到'}
+    
+    def delete_question(self, exam_id: str, question_number: int) -> Dict[str, Any]:
+        """删除题目"""
+        if self.model.delete_question(exam_id, question_number):
+            return {'success': True}
+        return {'success': False, 'error': '考试或题目未找到'}
+    
+    def clear_questions(self, exam_id: str) -> Dict[str, Any]:
+        """清空所有题目"""
+        if self.model.clear_questions(exam_id):
+            return {'success': True}
+        return {'success': False, 'error': '考试未找到'}
+    
+    def duplicate_exam(self, exam_id: str, new_name: str = '') -> Dict[str, Any]:
+        """复制考试"""
+        new_exam = self.model.duplicate_exam(exam_id, new_name)
+        if new_exam:
+            return {'success': True, 'exam': new_exam}
+        return {'success': False, 'error': '考试未找到'}
+    
     def add_score(self, exam_id: str, student_number: str, student_name: str,
                  results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """添加成绩"""
