@@ -89,9 +89,9 @@ class ExamModel(BaseModel):
                 question = {
                     'number': question_data.get('number'),
                     'content': question_data.get('content', ''),
-                    'answer': question_data.get('answer', ''),
+                    'correct_answer': question_data.get('correct_answer', ''),
                     'score': question_data.get('score', 5),
-                    'knowledge_point': question_data.get('knowledge_point', ''),
+                    'knowledge_points': question_data.get('knowledge_points', []),
                     'type': question_data.get('type', 'choice')  # choice, fill, calculation
                 }
                 exam.setdefault('questions', []).append(question)
@@ -220,9 +220,9 @@ class ExamModel(BaseModel):
                                 'exam_name': exam.get('name'),
                                 'question_number': question_number,
                                 'question_content': question.get('content', ''),
-                                'correct_answer': question.get('answer', ''),
+                                'correct_answer': question.get('correct_answer', ''),
                                 'student_answer': result.get('student_answer', ''),
-                                'knowledge_point': question.get('knowledge_point', ''),
+                                'knowledge_points': question.get('knowledge_points', []),
                                 'score': result.get('score', 0),
                                 'max_score': question.get('score', 5),
                                 'created_at': exam.get('created_at')

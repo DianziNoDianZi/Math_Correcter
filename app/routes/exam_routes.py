@@ -2,6 +2,13 @@
 考试管理路由
 """
 from flask import Blueprint, request, jsonify
+import sys
+import os
+from pathlib import Path
+
+# 导入test_library用于扫描和分析
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+import test_library
 
 exams_bp = Blueprint('exams', __name__, url_prefix='/api/exams')
 
@@ -54,14 +61,14 @@ def init_exam_routes(exam_service):
         
         number = data.get('number')
         content = data.get('content', '').strip()
-        answer = data.get('answer', '').strip()
+        correct_answer = data.get('correct_answer', '').strip()
         score = float(data.get('score', 5))
-        knowledge_point = data.get('knowledge_point', '').strip()
+        knowledge_points = data.get('knowledge_points', [])
         question_type = data.get('type', 'choice').strip()
         
         result = exam_service.add_question(
-            exam_id, number, content, answer,
-            score, knowledge_point, question_type
+            exam_id, number, content, correct_answer,
+            score, knowledge_points, question_type
         )
         return jsonify(result)
     
@@ -94,5 +101,55 @@ def init_exam_routes(exam_service):
         """获取考试统计"""
         result = exam_service.get_exam_statistics(exam_id)
         return jsonify(result)
+    
+    @exams_bp.route('/<exam_id>/scan', methods=['POST'])
+    def scan_exam(exam_id):
+        """批量扫描答题卡"""
+        try:
+            if 'files' not in request.files:
+                return jsonify({'success': False, 'error': '没有上传文件'}), 400
+            
+            files = request.files.getlist('files')
+            if not files:
+                return jsonify({'success': False, 'error': '请选择要上传的文件'}), 400
+            
+            image_files = []
+            for file in files:
+                if file.filename == '':
+                    continue
+                image_files.append((file.filename, file.read()))
+            
+            if not image_files:
+                return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
+            
+            result = test_library.batch_scan_answer_sheets(exam_id, image_files)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @exams_bp.route('/<exam_id>/adjust', methods=['POST'])
+    def adjust_exam_score(exam_id):
+        """调整单条成绩"""
+        try:
+            data = request.get_json() or {}
+            student_number = data.get('student_number')
+            score = data.get('score')
+            
+            if not student_number or score is None:
+                return jsonify({'success': False, 'error': '参数不完整'}), 400
+            
+            result = test_library.adjust_score(exam_id, student_number, float(score))
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @exams_bp.route('/<exam_id>/analysis', methods=['GET'])
+    def get_exam_analysis(exam_id):
+        """获取考试详细分析"""
+        try:
+            result = test_library.get_exam_analysis(exam_id)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
     
     return exams_bp

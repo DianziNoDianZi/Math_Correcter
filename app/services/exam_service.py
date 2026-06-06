@@ -42,16 +42,18 @@ class ExamService:
         return {'success': False, 'error': '考试未找到'}
     
     def add_question(self, exam_id: str, number: int, content: str,
-                    answer: str, score: float = 5,
-                    knowledge_point: str = '',
+                    correct_answer: str, score: float = 5,
+                    knowledge_points: list = None,
                     question_type: str = 'choice') -> Dict[str, Any]:
         """添加题目"""
+        if knowledge_points is None:
+            knowledge_points = []
         question_data = {
             'number': number,
             'content': content,
-            'answer': answer,
+            'correct_answer': correct_answer,
             'score': score,
-            'knowledge_point': knowledge_point,
+            'knowledge_points': knowledge_points,
             'type': question_type
         }
         
