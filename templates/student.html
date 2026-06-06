@@ -410,54 +410,156 @@
         let currentStudent = null;
         let scoreChart = null;
         let knowledgeChart = null;
-        let searchMode = 'student_id';
         
-        // 设置查询模式
-        function setSearchMode(mode) {
-            searchMode = mode;
-            
-            document.getElementById('btn-student-id').className = 
-                mode === 'student_id' ? 'flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white' 
-                                       : 'flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
-            document.getElementById('btn-scan').className = 
-                mode === 'scan' ? 'flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white'
-                                : 'flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300';
-            
-            document.getElementById('input-student-id').classList.toggle('hidden', mode !== 'student_id');
-            document.getElementById('scan-area').classList.toggle('hidden', mode !== 'scan');
-        }
+        // 页面加载时检查登录状态
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                const res = await fetch(`${API}/api/student/status`);
+                const data = await res.json();
+                
+                if (data.success && data.logged_in) {
+                    // 已登录，直接加载成绩
+                    currentStudent = data.student;
+                    await loadStudentData();
+                }
+            } catch (e) {
+                console.error('检查登录状态失败', e);
+            }
+        });
         
-        // 查询成绩
-        async function queryScores() {
-            const studentId = document.getElementById('student-id-input').value.trim();
+        // 学生登录
+        async function studentLogin() {
+            const studentNumber = document.getElementById('login-student-number').value.trim();
+            const password = document.getElementById('login-password').value.trim();
             
-            if (!studentId) {
-                alert('请输入学号');
+            if (!studentNumber || !password) {
+                alert('请输入学号和密码');
                 return;
             }
             
             showLoading();
             
             try {
-                const res = await fetch(`${API}/api/student/${studentId}/scores`);
+                const res = await fetch(`${API}/api/student/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_number: studentNumber, password: password })
+                });
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data.success) {
+                    currentStudent = data.student;
+                    await loadStudentData();
+                } else {
+                    alert(data.error || '登录失败，请检查学号和密码');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('登录失败，请稍后重试');
+                console.error(e);
+            }
+        }
+        
+        // 加载学生数据
+        async function loadStudentData() {
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/${currentStudent.student_number}/scores`);
                 const data = await res.json();
                 
                 hideLoading();
                 
                 if (data.success && data.student) {
-                    currentStudent = data.student;
                     displayStudentInfo(data.student);
                     displayOverview(data.overview);
                     displayScoreList(data.exams);
                     displayScoreChart(data.overview.chart_data);
                     displayKnowledgeSection(data.knowledge_stats);
                     loadWrongQuestions();
-                } else {
-                    alert('未找到该学号的成绩记录');
+                    document.getElementById('login-section').classList.add('hidden');
                 }
             } catch (e) {
                 hideLoading();
-                alert('查询失败，请稍后重试');
+                alert('加载成绩失败，请稍后重试');
+                console.error(e);
+            }
+        }
+        
+        // 学生登出
+        async function studentLogout() {
+            try {
+                await fetch(`${API}/api/student/logout`, { method: 'POST' });
+            } catch (e) {
+                console.error(e);
+            }
+            
+            currentStudent = null;
+            document.getElementById('login-section').classList.remove('hidden');
+            document.getElementById('student-info').classList.add('hidden');
+            document.getElementById('score-overview').classList.add('hidden');
+            document.getElementById('score-chart-section').classList.add('hidden');
+            document.getElementById('knowledge-section').classList.add('hidden');
+            document.getElementById('wrong-question-section').classList.add('hidden');
+            document.getElementById('score-list-section').classList.add('hidden');
+            
+            // 清空输入
+            document.getElementById('login-student-number').value = '';
+            document.getElementById('login-password').value = '';
+        }
+        
+        // 显示修改密码模态框
+        function showChangePasswordModal() {
+            document.getElementById('change-password-modal').classList.remove('hidden');
+        }
+        
+        // 关闭修改密码模态框
+        function closeChangePasswordModal() {
+            document.getElementById('change-password-modal').classList.add('hidden');
+            document.getElementById('old-password').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('confirm-password').value = '';
+        }
+        
+        // 修改密码
+        async function changePassword() {
+            const oldPassword = document.getElementById('old-password').value.trim();
+            const newPassword = document.getElementById('new-password').value.trim();
+            const confirmPassword = document.getElementById('confirm-password').value.trim();
+            
+            if (!oldPassword || !newPassword || !confirmPassword) {
+                alert('请填写完整信息');
+                return;
+            }
+            
+            if (newPassword !== confirmPassword) {
+                alert('两次输入的新密码不一致');
+                return;
+            }
+            
+            showLoading();
+            
+            try {
+                const res = await fetch(`${API}/api/student/change_password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword })
+                });
+                const data = await res.json();
+                
+                hideLoading();
+                
+                if (data.success) {
+                    alert('密码修改成功');
+                    closeChangePasswordModal();
+                } else {
+                    alert(data.error || '密码修改失败');
+                }
+            } catch (e) {
+                hideLoading();
+                alert('密码修改失败，请稍后重试');
                 console.error(e);
             }
         }
@@ -467,7 +569,6 @@
             document.getElementById('student-info').classList.remove('hidden');
             document.getElementById('display-name').textContent = student.name || '学生';
             document.getElementById('display-number').textContent = student.student_number;
-            document.getElementById('search-section').classList.add('hidden');
         }
         
         // 显示成绩概览

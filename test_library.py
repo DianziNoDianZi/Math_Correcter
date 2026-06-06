@@ -158,7 +158,7 @@ def add_class(class_data: Dict[str, Any]) -> Dict[str, Any]:
     """添加班级"""
     class_id = str(uuid.uuid4())
     
-    metadata = load_classes_metadata()
+    metadata = init_classes_metadata()
     new_class = {
         'id': class_id,
         'name': class_data.get('name', '未命名班级'),
@@ -180,7 +180,7 @@ def add_class(class_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_student_to_class(class_id: str, student_data: Dict[str, Any]) -> bool:
     """添加学生到班级"""
-    metadata = load_classes_metadata()
+    metadata = init_classes_metadata()
     for cls in metadata['classes']:
         if cls['id'] == class_id:
             student_id = str(uuid.uuid4())
@@ -350,7 +350,7 @@ def create_exam(exam_data: Dict[str, Any]) -> Dict[str, Any]:
         'statistics': {}
     }
     
-    metadata = load_exams_metadata()
+    metadata = init_exams_metadata()
     metadata['exams'].append(exam)
     save_exams_metadata(metadata)
     
@@ -358,7 +358,7 @@ def create_exam(exam_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_exam_score(exam_id: str, score_data: Dict[str, Any]) -> Dict[str, Any]:
     """添加考试成绩到考试"""
-    metadata = load_exams_metadata()
+    metadata = init_exams_metadata()
     
     for exam in metadata['exams']:
         if exam['id'] == exam_id:
