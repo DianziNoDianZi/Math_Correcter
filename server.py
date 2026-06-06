@@ -286,6 +286,87 @@ def teacher_logout():
     session.pop('teacher_logged_in', None)
     return redirect(url_for('index'))
 
+
+# ========== 学生登录相关 ==========
+@app.route('/api/student/login', methods=['POST'])
+def student_login():
+    """学生登录"""
+    try:
+        data = request.get_json() or {}
+        student_number = data.get('student_number')
+        password = data.get('password')
+        
+        if not student_number or not password:
+            return jsonify({'success': False, 'error': '请输入学号和密码'})
+        
+        result = test_library.verify_student_login(student_number, password)
+        
+        if result['success']:
+            # 登录成功，设置 session
+            session['student_logged_in'] = True
+            session['student_id'] = result['student']['id']
+            session['student_number'] = result['student']['student_number']
+            session['student_name'] = result['student']['name']
+            
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'学生登录失败: {e}')
+        return jsonify({'success': False, 'error': '登录失败，请稍后重试'}), 500
+
+
+@app.route('/api/student/logout', methods=['POST'])
+def student_logout():
+    """学生登出"""
+    session.pop('student_logged_in', None)
+    session.pop('student_id', None)
+    session.pop('student_number', None)
+    session.pop('student_name', None)
+    return jsonify({'success': True})
+
+
+@app.route('/api/student/status')
+def student_status():
+    """获取学生登录状态"""
+    if session.get('student_logged_in'):
+        return jsonify({
+            'success': True,
+            'logged_in': True,
+            'student': {
+                'id': session.get('student_id'),
+                'student_number': session.get('student_number'),
+                'name': session.get('student_name')
+            }
+        })
+    else:
+        return jsonify({'success': True, 'logged_in': False})
+
+
+@app.route('/api/student/change_password', methods=['POST'])
+def change_student_password_api():
+    """修改学生密码"""
+    try:
+        if not session.get('student_logged_in'):
+            return jsonify({'success': False, 'error': '请先登录'}), 401
+        
+        data = request.get_json() or {}
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+        
+        if not old_password or not new_password:
+            return jsonify({'success': False, 'error': '请输入原密码和新密码'})
+        
+        result = test_library.change_student_password(
+            session['student_number'],
+            old_password,
+            new_password
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'修改密码失败: {e}')
+        return jsonify({'success': False, 'error': '修改密码失败，请稍后重试'}), 500
+
+
 @app.before_request
 def inject_customization():
     # IP统计和封禁检查

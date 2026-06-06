@@ -188,6 +188,7 @@ def add_student_to_class(class_id: str, student_data: Dict[str, Any]) -> bool:
                 'id': student_id,
                 'name': student_data.get('name', ''),
                 'student_number': student_data.get('student_number', ''),
+                'password': student_data.get('password', student_data.get('student_number', '')),  # 默认密码为学号
                 'added_at': datetime.now().isoformat(),
                 'scores': []
             }
@@ -1966,6 +1967,124 @@ def get_student_practice_records(student_number: str, limit: int = 20) -> Dict[s
         'total_records': len(all_records),
         'records': all_records[:limit]
     }
+
+
+def verify_student_login(student_number: str, password: str) -> Dict[str, Any]:
+    """验证学生登录
+    
+    Args:
+        student_number: 学号
+        password: 密码
+        
+    Returns:
+        验证结果，成功时返回学生信息
+    """
+    metadata = load_classes_metadata()
+    
+    for cls in metadata.get('classes', []):
+        for student in cls.get('students', []):
+            if student.get('student_number') == student_number:
+                # 验证密码
+                if student.get('password') == password:
+                    return {
+                        'success': True,
+                        'student': {
+                            'id': student.get('id'),
+                            'name': student.get('name'),
+                            'student_number': student.get('student_number')
+                        }
+                    }
+                else:
+                    return {'success': False, 'error': '密码错误'}
+    
+    return {'success': False, 'error': '学号不存在'}
+
+
+def change_student_password(student_number: str, old_password: str, new_password: str) -> Dict[str, Any]:
+    """修改学生密码
+    
+    Args:
+        student_number: 学号
+        old_password: 原密码
+        new_password: 新密码
+        
+    Returns:
+        操作结果
+    """
+    metadata = load_classes_metadata()
+    
+    for cls in metadata.get('classes', []):
+        for student in cls.get('students', []):
+            if student.get('student_number') == student_number:
+                if student.get('password') == old_password:
+                    student['password'] = new_password
+                    save_classes_metadata(metadata)
+                    return {'success': True, 'message': '密码修改成功'}
+                else:
+                    return {'success': False, 'error': '原密码错误'}
+    
+    return {'success': False, 'error': '学号不存在'}
+
+
+def ensure_student_password(exam_data: Dict[str, Any]) -> None:
+    """确保考试中的学生记录也有密码（兼容性处理）
+    
+    Args:
+        exam_data: 考试数据
+    """
+    metadata = load_classes_metadata()
+    
+    for score in exam_data.get('scores', []):
+        student_number = score.get('student_number')
+        if not student_number:
+            continue
+            
+        # 检查班级数据中是否有该学生，没有的话添加
+        found = False
+        for cls in metadata.get('classes', []):
+            for student in cls.get('students', []):
+                if student.get('student_number') == student_number:
+                    found = True
+                    break
+            if found:
+                break
+        
+        if not found:
+            # 在班级中找不到这个学生，我们需要添加一个默认班级
+            default_class = None
+            for cls in metadata.get('classes', []):
+                if cls.get('name') == '默认班级':
+                    default_class = cls
+                    break
+            
+            if not default_class:
+                # 创建默认班级
+                default_class_id = str(uuid.uuid4())
+                default_class = {
+                    'id': default_class_id,
+                    'name': '默认班级',
+                    'grade': '10-12',
+                    'teacher_name': '',
+                    'created_at': datetime.now().isoformat(),
+                    'students': [],
+                    'assigned_papers': []
+                }
+                metadata['classes'].append(default_class)
+                metadata['total_students'] = metadata.get('total_students', 0)
+            
+            # 添加学生
+            student_id = str(uuid.uuid4())
+            default_class['students'].append({
+                'id': student_id,
+                'name': score.get('student_name', '未知'),
+                'student_number': student_number,
+                'password': student_number,  # 默认密码为学号
+                'added_at': datetime.now().isoformat(),
+                'scores': []
+            })
+            metadata['total_students'] = metadata.get('total_students', 0) + 1
+            save_classes_metadata(metadata)
+
 
 
 

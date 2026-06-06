@@ -38,45 +38,36 @@
             <p class="text-gray-600">输入学号或扫描二维码查询成绩</p>
         </header>
         
-        <!-- 查询区域 -->
-        <div id="search-section" class="gradient-bg rounded-2xl shadow-xl p-8 mb-8">
+        <!-- 登录区域 -->
+        <div id="login-section" class="gradient-bg rounded-2xl shadow-xl p-8 mb-8">
             <div class="max-w-2xl mx-auto">
                 <div class="bg-white rounded-xl p-6 shadow-lg">
-                    <h2 class="text-xl font-semibold mb-4 text-center">🔍 查询成绩</h2>
+                    <h2 class="text-xl font-semibold mb-4 text-center">🔐 学生登录</h2>
                     
-                    <!-- 查询方式选择 -->
-                    <div class="flex gap-4 mb-6">
-                        <button onclick="setSearchMode('student_id')" id="btn-student-id" 
-                                class="flex-1 py-3 px-4 rounded-lg font-medium bg-indigo-500 text-white">
-                            📝 输入学号
-                        </button>
-                        <button onclick="setSearchMode('scan')" id="btn-scan"
-                                class="flex-1 py-3 px-4 rounded-lg font-medium bg-gray-200 text-gray-700 hover:bg-gray-300">
-                            📷 扫码查询
-                        </button>
-                    </div>
-                    
-                    <!-- 学号输入 -->
-                    <div id="input-student-id" class="mb-4">
-                        <label class="block text-gray-700 text-sm font-bold mb-2">请输入您的学号</label>
-                        <input type="text" id="student-id-input" 
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">学号</label>
+                        <input type="text" id="login-student-number" 
                                placeholder="请输入学号，例如：2024001"
                                class="shadow border rounded-lg w-full py-3 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                               onkeypress="if(event.key==='Enter')queryScores()">
+                               onkeypress="if(event.key==='Enter')document.getElementById('login-password').focus()">
                     </div>
                     
-                    <!-- 二维码扫描区域 -->
-                    <div id="scan-area" class="hidden mb-4">
-                        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                            <div id="qr-reader" class="mx-auto"></div>
-                            <p class="text-gray-500 mt-4">请扫描老师提供的成绩查询二维码</p>
-                        </div>
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">密码</label>
+                        <input type="password" id="login-password" 
+                               placeholder="请输入密码（默认密码为学号）"
+                               class="shadow border rounded-lg w-full py-3 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                               onkeypress="if(event.key==='Enter')studentLogin()">
                     </div>
                     
-                    <button onclick="queryScores()" 
+                    <button onclick="studentLogin()" 
                             class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition-colors">
-                        查询成绩 →
+                        登录 →
                     </button>
+                    
+                    <p class="text-gray-500 text-sm text-center mt-4">
+                        提示：初始密码为学号，请登录后及时修改密码
+                    </p>
                 </div>
             </div>
         </div>
@@ -94,9 +85,14 @@
                             <p class="text-gray-500" id="display-info">学号：<span id="display-number">-</span></p>
                         </div>
                     </div>
-                    <button onclick="logout()" class="text-gray-500 hover:text-gray-700">
-                        退出查询
-                    </button>
+                    <div class="flex gap-2">
+                        <button onclick="showChangePasswordModal()" class="px-3 py-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded">
+                            修改密码
+                        </button>
+                        <button onclick="studentLogout()" class="px-3 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded">
+                            退出登录
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -353,6 +349,50 @@
                     <!-- 记录列表 -->
                     <div id="practice-records-list" class="space-y-3"></div>
                 </div>
+            </div>
+        </div>
+        
+        <!-- 修改密码模态框 -->
+        <div id="change-password-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center">
+            <div class="bg-white rounded-xl max-w-md w-full mx-4 p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-bold">🔑 修改密码</h2>
+                    <button onclick="closeChangePasswordModal()" class="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+                </div>
+                
+                <form onsubmit="event.preventDefault(); changePassword()">
+                    <div class="mb-4">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">原密码</label>
+                        <input type="password" id="old-password" 
+                               placeholder="请输入原密码"
+                               class="shadow border rounded-lg w-full py-2 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">新密码</label>
+                        <input type="password" id="new-password" 
+                               placeholder="请输入新密码"
+                               class="shadow border rounded-lg w-full py-2 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    </div>
+                    
+                    <div class="mb-6">
+                        <label class="block text-gray-700 text-sm font-bold mb-2">确认新密码</label>
+                        <input type="password" id="confirm-password" 
+                               placeholder="请再次输入新密码"
+                               class="shadow border rounded-lg w-full py-2 px-4 text-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeChangePasswordModal()" 
+                                class="flex-1 px-4 py-2 border rounded-lg font-medium hover:bg-gray-50">
+                            取消
+                        </button>
+                        <button type="submit" 
+                                class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg">
+                            确定修改
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
         
