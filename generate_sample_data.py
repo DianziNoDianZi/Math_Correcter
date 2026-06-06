@@ -15,7 +15,10 @@ from test_library import (
     add_exam_score,
     add_class,
     add_student_to_class,
-    ensure_student_password
+    ensure_student_password,
+    add_question_to_exam,
+    set_exam_ready,
+    get_exam_by_id
 )
 
 
@@ -86,8 +89,16 @@ def generate_sample_data():
     for exam_data in exams_data:
         result = create_exam(exam_data)
         if result["success"]:
-            created_exams.append(result["exam_id"])
-            print(f"✓ 已创建考试: {exam_data['name']} (ID: {result['exam_id']})")
+            exam_id = result["exam_id"]
+            created_exams.append(exam_id)
+            print(f"✓ 已创建考试: {exam_data['name']} (ID: {exam_id})")
+            
+            # 添加题目
+            for question in exam_data.get("questions", []):
+                add_question_to_exam(exam_id, question)
+            
+            # 设置考试为就绪状态
+            set_exam_ready(exam_id)
         else:
             print(f"✗ 创建考试失败: {result.get('error')}")
     
@@ -101,54 +112,70 @@ def generate_sample_data():
             "student_number": "2024001",
             "student_name": "小明",
             "exam_id": created_exams[0],
-            "question_scores": [
-                {"question_number": 1, "student_answer": "5", "is_correct": True, "score": 5},
-                {"question_number": 2, "student_answer": "5", "is_correct": False, "score": 0},
-                {"question_number": 3, "student_answer": "42", "is_correct": True, "score": 5},
-                {"question_number": 4, "student_answer": "8", "is_correct": False, "score": 0},
-                {"question_number": 5, "student_answer": "x=6", "is_correct": False, "score": 0},
-                {"question_number": 6, "student_answer": "28", "is_correct": False, "score": 0},
-            ]
+            "results": [
+                {"number": 1, "student_answer": "5", "is_correct": True, "score": 5},
+                {"number": 2, "student_answer": "5", "is_correct": False, "score": 0},
+                {"number": 3, "student_answer": "42", "is_correct": True, "score": 5},
+                {"number": 4, "student_answer": "8", "is_correct": False, "score": 0},
+                {"number": 5, "student_answer": "x=6", "is_correct": False, "score": 0},
+                {"number": 6, "student_answer": "28", "is_correct": False, "score": 0},
+            ],
+            "total_score": 10,
+            "accuracy": 0.33
         },
         {
             "student_number": "2024001",
             "student_name": "小明",
             "exam_id": created_exams[1],
-            "question_scores": [
-                {"question_number": 1, "student_answer": "10", "is_correct": True, "score": 5},
-                {"question_number": 2, "student_answer": "70", "is_correct": False, "score": 0},
-                {"question_number": 3, "student_answer": "20", "is_correct": True, "score": 5},
-            ]
+            "results": [
+                {"number": 1, "student_answer": "10", "is_correct": True, "score": 5},
+                {"number": 2, "student_answer": "70", "is_correct": False, "score": 0},
+                {"number": 3, "student_answer": "20", "is_correct": True, "score": 5},
+            ],
+            "total_score": 10,
+            "accuracy": 0.67
         },
         {
             "student_number": "2024002",
             "student_name": "小红",
             "exam_id": created_exams[0],
-            "question_scores": [
-                {"question_number": 1, "student_answer": "5", "is_correct": True, "score": 5},
-                {"question_number": 2, "student_answer": "6", "is_correct": True, "score": 5},
-                {"question_number": 3, "student_answer": "40", "is_correct": False, "score": 0},
-                {"question_number": 4, "student_answer": "9", "is_correct": True, "score": 5},
-                {"question_number": 5, "student_answer": "x=5", "is_correct": True, "score": 10},
-                {"question_number": 6, "student_answer": "28.26", "is_correct": True, "score": 15},
-            ]
+            "results": [
+                {"number": 1, "student_answer": "5", "is_correct": True, "score": 5},
+                {"number": 2, "student_answer": "6", "is_correct": True, "score": 5},
+                {"number": 3, "student_answer": "40", "is_correct": False, "score": 0},
+                {"number": 4, "student_answer": "9", "is_correct": True, "score": 5},
+                {"number": 5, "student_answer": "x=5", "is_correct": True, "score": 10},
+                {"number": 6, "student_answer": "28.26", "is_correct": True, "score": 15},
+            ],
+            "total_score": 40,
+            "accuracy": 1.0
         }
     ]
     
-    # 添加考试成绩并确保学生账号存在
+    # 直接更新考试数据以添加完整的成绩
+    from test_library import load_exams_metadata, save_exams_metadata
+    metadata = load_exams_metadata()
+    
     for score_data in exam_scores:
-        result = add_exam_score(
-            exam_id=score_data["exam_id"],
-            score_data={
-                "student_number": score_data["student_number"],
-                "student_name": score_data["student_name"],
-                "question_scores": score_data["question_scores"]
-            }
-        )
-        if result["success"]:
-            print(f"✓ 已添加 {score_data['student_name']} 的成绩到考试 {score_data['exam_id']}")
-        else:
-            print(f"✗ 添加成绩失败: {result.get('error')}")
+        for exam in metadata['exams']:
+            if exam['id'] == score_data['exam_id']:
+                # 计算题目总分
+                total_max_score = sum(q.get('score', 0) for q in exam.get('questions', []))
+                
+                new_score = {
+                    'student_number': score_data['student_number'],
+                    'student_name': score_data['student_name'],
+                    'total_score': score_data['total_score'],
+                    'max_score': total_max_score,
+                    'accuracy': score_data['accuracy'],
+                    'results': score_data['results'],
+                    'confirmed': True,
+                    'created_at': datetime.now().isoformat()
+                }
+                exam['scores'].append(new_score)
+                print(f"✓ 已添加 {score_data['student_name']} 的成绩到考试 {score_data['exam_id']}")
+    
+    save_exams_metadata(metadata)
     
     # 确保所有有成绩的学生都有账号（兼容处理）
     for exam_id in created_exams:

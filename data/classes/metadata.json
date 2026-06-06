@@ -1,26 +1,26 @@
 {
   "classes": [
     {
-      "id": "1e848ff3-0ce1-46d3-978f-bcf6c798f96f",
+      "id": "c106ef8c-e63b-4878-8a58-47e37a959685",
       "name": "高一(1)班",
       "grade": "高一",
       "teacher_name": "张老师",
-      "created_at": "2026-06-06T00:49:33.783690",
+      "created_at": "2026-06-06T00:56:20.257645",
       "students": [
         {
-          "id": "642958cb-734e-4bc6-8ea9-438c671c095c",
+          "id": "251ae69d-4513-4dcd-9a57-c4b75b3815d7",
           "name": "小明",
           "student_number": "2024001",
           "password": "2024001",
-          "added_at": "2026-06-06T00:49:33.783967",
+          "added_at": "2026-06-06T00:56:20.257888",
           "scores": []
         },
         {
-          "id": "5b839323-0fdd-46fa-9523-f209a590d3c5",
+          "id": "d6a93d9d-f03f-4e35-b4a0-df1b114145dd",
           "name": "小红",
           "student_number": "2024002",
           "password": "2024002",
-          "added_at": "2026-06-06T00:49:33.784435",
+          "added_at": "2026-06-06T00:56:20.258351",
           "scores": []
         }
       ],

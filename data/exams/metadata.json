@@ -1,0 +1,254 @@
+{
+  "exams": [
+    {
+      "id": "677e8bb4-331d-4d53-8381-25b6ee33b376",
+      "name": "2024年下学期期中考试",
+      "class_id": null,
+      "grade": null,
+      "total_score": 100.0,
+      "created_at": "2026-06-06T00:56:20.258688",
+      "status": "ready",
+      "questions": [
+        {
+          "number": 1,
+          "type": "choice",
+          "content": "计算：2 + 3 = ?",
+          "correct_answer": "5",
+          "score": 5.0,
+          "knowledge_points": [
+            "加法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 2,
+          "type": "choice",
+          "content": "计算：10 - 4 = ?",
+          "correct_answer": "6",
+          "score": 5.0,
+          "knowledge_points": [
+            "减法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 3,
+          "type": "choice",
+          "content": "计算：6 × 7 = ?",
+          "correct_answer": "42",
+          "score": 5.0,
+          "knowledge_points": [
+            "乘法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 4,
+          "type": "choice",
+          "content": "计算：36 ÷ 4 = ?",
+          "correct_answer": "9",
+          "score": 5.0,
+          "knowledge_points": [
+            "除法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 5,
+          "type": "fill",
+          "content": "解方程：2x = 10",
+          "correct_answer": "x=5",
+          "score": 10.0,
+          "knowledge_points": [
+            "方程"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 6,
+          "type": "calculation",
+          "content": "求圆面积，半径为3",
+          "correct_answer": "28.26",
+          "score": 15.0,
+          "knowledge_points": [
+            "几何"
+          ],
+          "difficulty": "medium"
+        }
+      ],
+      "scores": [
+        {
+          "student_number": "2024001",
+          "student_name": "小明",
+          "total_score": 10,
+          "max_score": 45.0,
+          "accuracy": 0.33,
+          "results": [
+            {
+              "number": 1,
+              "student_answer": "5",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 2,
+              "student_answer": "5",
+              "is_correct": false,
+              "score": 0
+            },
+            {
+              "number": 3,
+              "student_answer": "42",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 4,
+              "student_answer": "8",
+              "is_correct": false,
+              "score": 0
+            },
+            {
+              "number": 5,
+              "student_answer": "x=6",
+              "is_correct": false,
+              "score": 0
+            },
+            {
+              "number": 6,
+              "student_answer": "28",
+              "is_correct": false,
+              "score": 0
+            }
+          ],
+          "confirmed": true,
+          "created_at": "2026-06-06T00:56:20.264684"
+        },
+        {
+          "student_number": "2024002",
+          "student_name": "小红",
+          "total_score": 40,
+          "max_score": 45.0,
+          "accuracy": 1.0,
+          "results": [
+            {
+              "number": 1,
+              "student_answer": "5",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 2,
+              "student_answer": "6",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 3,
+              "student_answer": "40",
+              "is_correct": false,
+              "score": 0
+            },
+            {
+              "number": 4,
+              "student_answer": "9",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 5,
+              "student_answer": "x=5",
+              "is_correct": true,
+              "score": 10
+            },
+            {
+              "number": 6,
+              "student_answer": "28.26",
+              "is_correct": true,
+              "score": 15
+            }
+          ],
+          "confirmed": true,
+          "created_at": "2026-06-06T00:56:20.264714"
+        }
+      ],
+      "statistics": {}
+    },
+    {
+      "id": "16ee9064-0310-4c45-8668-d41858e01cec",
+      "name": "2024年下学期单元测验",
+      "class_id": null,
+      "grade": null,
+      "total_score": 100.0,
+      "created_at": "2026-06-06T00:56:20.261774",
+      "status": "ready",
+      "questions": [
+        {
+          "number": 1,
+          "type": "choice",
+          "content": "4 + 6 = ?",
+          "correct_answer": "10",
+          "score": 5.0,
+          "knowledge_points": [
+            "加法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 2,
+          "type": "choice",
+          "content": "9 × 8 = ?",
+          "correct_answer": "72",
+          "score": 5.0,
+          "knowledge_points": [
+            "乘法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 3,
+          "type": "choice",
+          "content": "100 ÷ 5 = ?",
+          "correct_answer": "20",
+          "score": 5.0,
+          "knowledge_points": [
+            "除法"
+          ],
+          "difficulty": "medium"
+        }
+      ],
+      "scores": [
+        {
+          "student_number": "2024001",
+          "student_name": "小明",
+          "total_score": 10,
+          "max_score": 15.0,
+          "accuracy": 0.67,
+          "results": [
+            {
+              "number": 1,
+              "student_answer": "10",
+              "is_correct": true,
+              "score": 5
+            },
+            {
+              "number": 2,
+              "student_answer": "70",
+              "is_correct": false,
+              "score": 0
+            },
+            {
+              "number": 3,
+              "student_answer": "20",
+              "is_correct": true,
+              "score": 5
+            }
+          ],
+          "confirmed": true,
+          "created_at": "2026-06-06T00:56:20.264703"
+        }
+      ],
+      "statistics": {}
+    }
+  ]
+}
