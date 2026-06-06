@@ -11,7 +11,60 @@
       "questions": [],
       "scores": [],
       "statistics": {}
+    },
+    {
+      "id": "7ace70e4-cdd5-40f5-bca5-919ba0bf8c08",
+      "name": "完整流程测试",
+      "class_id": "test-class",
+      "grade": null,
+      "total_score": 100.0,
+      "created_at": "2026-06-06T08:17:15.150516",
+      "status": "scanning",
+      "questions": [
+        {
+          "number": 1,
+          "content": "",
+          "correct_answer": "A",
+          "score": 10,
+          "knowledge_points": [
+            "代数"
+          ],
+          "type": "choice"
+        },
+        {
+          "number": 2,
+          "content": "",
+          "correct_answer": "B",
+          "score": 10,
+          "knowledge_points": [
+            "几何"
+          ],
+          "type": "choice"
+        },
+        {
+          "number": 3,
+          "content": "",
+          "correct_answer": "42",
+          "score": 5,
+          "knowledge_points": [
+            "代数"
+          ],
+          "type": "fill_blank"
+        },
+        {
+          "number": 4,
+          "content": "",
+          "correct_answer": "略",
+          "score": 5,
+          "knowledge_points": [
+            "证明"
+          ],
+          "type": "subjective"
+        }
+      ],
+      "scores": [],
+      "statistics": {}
     }
   ],
-  "total_exams": 1
+  "total_exams": 2
 }

@@ -9,6 +9,12 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import defaultdict
+import sys
+from pathlib import Path
+
+# 添加项目根目录到路径以便导入app模块
+sys.path.insert(0, str(Path(__file__).parent))
+from app.utils.helpers import get_timestamp
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -410,25 +416,34 @@ def delete_exam(exam_id: str) -> bool:
         return True
     return False
 
-# ========== 答题卡识别（模拟实现）============
+# ========== 答题卡识别 ==========
 
 def detect_student_number(image_path: str) -> str:
-    """识别学生考号"""
-    # 实际应该调用OCR/AI来识别
-    # 这里返回模拟数据
+    """识别学生考号（从文件名提取作为后备方案）"""
+    filename = os.path.basename(image_path)
+    # 去掉扩展名
+    name_without_ext = os.path.splitext(filename)[0]
+    # 尝试从文件名提取纯数字学号（如 "20240001.jpg" -> "20240001"）
+    # 也支持 "张三_20240001.jpg" 格式
+    import re
+    # 优先匹配连续5位以上数字
+    match = re.search(r'(\d{5,})', name_without_ext)
+    if match:
+        return match.group(1)
+    # 如果文件名本身是纯数字
+    if name_without_ext.isdigit() and len(name_without_ext) >= 4:
+        return name_without_ext
     return ''
 
 def detect_answers(image_path: str, questions: List[Dict]) -> Dict[int, Any]:
-    """识别学生答题结果"""
-    # 实际应该调用AI来识别每道题的答案
-    # 这里返回模拟数据
+    """识别学生答题结果（暂时返回空，由教师在审核页手动批改）"""
     answers = {}
     for q in questions:
-        if q['type'] in ['choice', 'true_false']:
-            answers[q['number']] = q.get('correct_answer')
+        if q['type'] in ['choice', 'true_false', 'fill_blank']:
+            answers[q['number']] = ''  # 留空，教师审核时填写
     return answers
 
-def scan_answer_sheet(exam_id: str, image_path: str) -> Dict[str, Any]:
+def scan_answer_sheet(exam_id: str, image_path: str, original_filename: str = '') -> Dict[str, Any]:
     """扫描单张答题卡"""
     exam = get_exam_by_id(exam_id)
     if not exam:
@@ -438,7 +453,7 @@ def scan_answer_sheet(exam_id: str, image_path: str) -> Dict[str, Any]:
         return {'success': False, 'error': '考试状态不允许扫描'}
     
     try:
-        student_number = detect_student_number(image_path)
+        student_number = detect_student_number(original_filename or image_path)
         answers = detect_answers(image_path, exam['questions'])
         
         results = []
@@ -491,7 +506,7 @@ def scan_answer_sheet(exam_id: str, image_path: str) -> Dict[str, Any]:
             'max_score': exam['total_score'],
             'correct_count': correct_count,
             'total_questions': len(exam['questions']),
-            'accuracy': (correct_count / len(exam['questions']) * 100) if exam['questions'] else 0,
+            'accuracy': (total_score / exam['total_score'] * 100) if exam['total_score'] > 0 else 0,
             'knowledge_stats': knowledge_stats
         }
     except Exception as e:
@@ -528,7 +543,7 @@ def batch_scan_answer_sheets(exam_id: str, image_files: List[Tuple[str, bytes]])
         with open(image_path, 'wb') as f:
             f.write(image_data)
         
-        scan_result = scan_answer_sheet(exam_id, image_path)
+        scan_result = scan_answer_sheet(exam_id, image_path, filename)
         if scan_result.get('success'):
             student_info = student_map.get(scan_result.get('student_number', ''))
             if student_info:
@@ -545,6 +560,9 @@ def batch_scan_answer_sheets(exam_id: str, image_files: List[Tuple[str, bytes]])
     
     for e in metadata['exams']:
         if e['id'] == exam_id:
+            for r in scanned_results:
+                r['confirmed'] = False
+                r['created_at'] = get_timestamp()
             e['scores'] = scanned_results
             e['status'] = 'reviewing'
             save_exams_metadata(metadata)
@@ -611,6 +629,10 @@ def adjust_score(exam_id: str, student_number: str, score: float) -> Dict[str, A
                 if s.get('student_number') == student_number:
                     s['total_score'] = score
                     s['adjusted'] = True
+                    # 同步更新正确率
+                    max_score = exam.get('total_score', s.get('max_score', 100))
+                    if max_score > 0:
+                        s['accuracy'] = (score / max_score) * 100
                     save_exams_metadata(metadata)
                     return {'success': True}
             return {'success': False, 'error': '未找到该学生成绩'}

@@ -65,7 +65,7 @@ class ExamService:
         """设置考试为就绪状态"""
         if self.model.set_exam_ready(exam_id):
             return {'success': True}
-        return {'success': False, 'error': '考试未找到'}
+        return {'success': False, 'error': '考试未找到或无题目'}
     
     def update_question(self, exam_id: str, question_number: int,
                        question_data: Dict[str, Any]) -> Dict[str, Any]:

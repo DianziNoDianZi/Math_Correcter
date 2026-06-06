@@ -18,6 +18,7 @@ def init_exam_routes(exam_service):
     @exams_bp.route('', methods=['GET'])
     def get_all_exams():
         """获取所有考试"""
+        exam_service.model.reload()  # 刷新缓存
         exams = exam_service.get_all_exams()
         return jsonify({
             'success': True,
@@ -40,6 +41,7 @@ def init_exam_routes(exam_service):
     @exams_bp.route('/<exam_id>', methods=['GET'])
     def get_exam(exam_id):
         """获取考试详情"""
+        exam_service.model.reload()  # 刷新缓存，确保获取最新数据
         exam = exam_service.get_exam(exam_id)
         if exam:
             return jsonify({
@@ -150,6 +152,7 @@ def init_exam_routes(exam_service):
                 return jsonify({'success': False, 'error': '没有有效的图片文件'}), 400
             
             result = test_library.batch_scan_answer_sheets(exam_id, image_files)
+            exam_service.model.reload()  # 刷新缓存
             return jsonify(result)
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
@@ -166,6 +169,7 @@ def init_exam_routes(exam_service):
                 return jsonify({'success': False, 'error': '参数不完整'}), 400
             
             result = test_library.adjust_score(exam_id, student_number, float(score))
+            exam_service.model.reload()  # 刷新缓存
             return jsonify(result)
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500

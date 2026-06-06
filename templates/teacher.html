@@ -290,6 +290,7 @@
         const API = window.location.origin;
         let selectedFiles = [], currentExam = null, currentClass = null, examQuestions = [], classes = [], adjustTarget = null;
         let editingExamId = null;  // 编辑模式下的考试ID
+        let originalExamQuestions = []; // 编辑前的原始题目列表
         let resetPwdTarget = null; // 密码重置目标
 
         // ========== Toast ==========
@@ -541,6 +542,7 @@
                 if (!data.success || !data.exam) { showToast('考试未找到', 'error'); return; }
                 const exam = data.exam;
                 editingExamId = exam.id;
+                originalExamQuestions = (exam.questions || []).map(q => ({ number: q.number }));
                 examQuestions = (exam.questions || []).map(q => ({
                     number: q.number, type: q.type, score: q.score,
                     correct_answer: q.correct_answer, knowledge_points: q.knowledge_points || []
@@ -563,11 +565,18 @@
             if (!editingExamId) return;
             showLoading();
             try {
-                // 清空旧题目
-                await fetch(`${API}/api/exams/${editingExamId}/questions`, { method: 'DELETE' });
-                // 重新添加
+                // 先添加所有新题目（如果题号已存在会覆盖）
                 for (const q of examQuestions) {
-                    await fetch(`${API}/api/exams/${editingExamId}/questions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+                    const res = await fetch(`${API}/api/exams/${editingExamId}/questions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+                    if (!res.ok) throw new Error('添加题目失败');
+                }
+                // 删除旧题目中不在新列表里的题号
+                const newNumbers = new Set(examQuestions.map(q => q.number));
+                const oldQuestions = originalExamQuestions || [];
+                for (const oldQ of oldQuestions) {
+                    if (!newNumbers.has(oldQ.number)) {
+                        await fetch(`${API}/api/exams/${editingExamId}/questions/${oldQ.number}`, { method: 'DELETE' });
+                    }
                 }
                 showToast('修改已保存', 'success');
                 closeModal('modal-create-exam');

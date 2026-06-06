@@ -105,6 +105,8 @@ class ExamModel(BaseModel):
         
         for exam in data['exams']:
             if exam.get('id') == exam_id:
+                if not exam.get('questions'):
+                    return False
                 exam['status'] = 'ready'
                 self._save()
                 return True
@@ -189,7 +191,7 @@ class ExamModel(BaseModel):
                     total_max_score = exam.get('total_score', 100)
                 
                 correct_count = sum(1 for r in results if r.get('is_correct', False))
-                accuracy = correct_count / len(results) if results else 0
+                accuracy = (total_score / total_max_score * 100) if total_max_score > 0 else 0
                 
                 new_score = {
                     'student_number': score_data.get('student_number'),
@@ -210,6 +212,9 @@ class ExamModel(BaseModel):
                         return {'success': True, 'updated': True}
                 
                 exam.setdefault('scores', []).append(new_score)
+                # 手动录入成绩后自动将考试状态改为reviewing
+                if exam.get('status') in ['ready', 'draft']:
+                    exam['status'] = 'reviewing'
                 self._save()
                 return {'success': True, 'updated': False}
         
