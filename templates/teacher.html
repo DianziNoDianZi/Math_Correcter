@@ -342,13 +342,17 @@
                         <!-- 添加学生 -->
                         <div class="bg-gray-50 rounded-lg p-4 mb-6">
                             <h3 class="font-medium mb-3">添加学生</h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
                                 <input type="text" id="student-name" placeholder="学生姓名 *" class="shadow border rounded py-2 px-3">
                                 <input type="text" id="student-number" placeholder="学号 *" class="shadow border rounded py-2 px-3">
+                                <input type="text" id="student-password" placeholder="密码（默认同学号）" class="shadow border rounded py-2 px-3">
                             </div>
                             <button onclick="addStudent()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
                                 添加
                             </button>
+                            <p class="text-sm text-gray-500 mt-2">
+                                * 提示：如果不设置密码，默认密码为学号
+                            </p>
                         </div>
                         
                         <!-- 学生列表 -->
@@ -568,8 +572,63 @@
             container.innerHTML = students.map(s => `
                 <div class="flex justify-between items-center bg-gray-50 rounded px-3 py-2">
                     <span>${s.name} <span class="text-gray-500 text-sm">(${s.student_number})</span></span>
+                    <div class="flex gap-2">
+                        <button onclick="resetStudentPassword('${s.student_number}')" class="text-indigo-600 hover:text-indigo-800 text-sm">
+                            🔑 重置密码
+                        </button>
+                        <button onclick="removeStudent('${s.student_number}')" class="text-red-600 hover:text-red-800 text-sm">
+                            🗑️ 删除
+                        </button>
+                    </div>
                 </div>
             `).join('');
+        }
+
+        async function resetStudentPassword(studentNumber) {
+            if (!confirm(`确定要重置学生 ${studentNumber} 的密码吗？\n\n重置后密码将为学号: ${studentNumber}`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/students/${studentNumber}/password`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: studentNumber })
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    alert('密码重置成功！\n新密码为: ' + studentNumber);
+                } else {
+                    alert('重置失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('重置失败');
+            }
+        }
+
+        async function removeStudent(studentNumber) {
+            if (!confirm(`确定要删除学生 ${studentNumber} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API}/api/classes/${currentClass.id}/students/${studentNumber}`, {
+                    method: 'DELETE'
+                });
+                const result = await res.json();
+                
+                if (result.success) {
+                    alert('删除成功！');
+                    loadClasses();
+                    // 重新打开班级详情
+                    openClassDetail(currentClass.id);
+                } else {
+                    alert('删除失败: ' + (result.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('删除失败');
+            }
         }
 
         function closeClassModal() {
@@ -580,17 +639,23 @@
         async function addStudent() {
             const name = document.getElementById('student-name').value.trim();
             const number = document.getElementById('student-number').value.trim();
+            const password = document.getElementById('student-password').value.trim();
             
             if (!name || !number) {
                 alert('请填写姓名和学号');
                 return;
             }
             
+            const studentData = { name, student_number: number };
+            if (password) {
+                studentData.password = password;
+            }
+            
             try {
                 const res = await fetch(`${API}/api/classes/${currentClass.id}/students`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ student: { name, student_number: number } })
+                    body: JSON.stringify({ student: studentData })
                 });
                 const result = await res.json();
                 
@@ -598,6 +663,7 @@
                     alert('添加成功！');
                     document.getElementById('student-name').value = '';
                     document.getElementById('student-number').value = '';
+                    document.getElementById('student-password').value = '';
                     loadClasses().then(() => {
                         currentClass = classes.find(c => c.id === currentClass.id);
                         renderStudentList();

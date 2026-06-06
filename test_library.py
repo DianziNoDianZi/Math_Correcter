@@ -2026,6 +2026,52 @@ def change_student_password(student_number: str, old_password: str, new_password
     return {'success': False, 'error': '学号不存在'}
 
 
+def remove_student_from_class(class_id: str, student_number: str) -> bool:
+    """从班级删除学生
+    
+    Args:
+        class_id: 班级ID
+        student_number: 学号
+    
+    Returns:
+        是否成功
+    """
+    metadata = load_classes_metadata()
+    
+    for cls in metadata.get('classes', []):
+        if cls.get('id') == class_id:
+            original_students = cls.get('students', [])
+            original_len = len(original_students)
+            cls['students'] = [s for s in original_students if s.get('student_number') != student_number]
+            if len(cls['students']) < original_len:
+                # 更新学生总数
+                metadata['total_students'] = max(0, metadata.get('total_students', 0) - 1)
+                save_classes_metadata(metadata)
+                return True
+    
+    return False
+
+def reset_student_password(student_number: str, new_password: str) -> Dict[str, Any]:
+    """重置学生密码
+    
+    Args:
+        student_number: 学号
+        new_password: 新密码
+    
+    Returns:
+        操作结果
+    """
+    metadata = load_classes_metadata()
+    
+    for cls in metadata.get('classes', []):
+        for student in cls.get('students', []):
+            if student.get('student_number') == student_number:
+                student['password'] = new_password
+                save_classes_metadata(metadata)
+                return {'success': True, 'message': '密码重置成功'}
+    
+    return {'success': False, 'error': '学生未找到'}
+
 def ensure_student_password(exam_data: Dict[str, Any]) -> None:
     """确保考试中的学生记录也有密码（兼容性处理）
     

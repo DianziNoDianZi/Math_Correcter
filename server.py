@@ -142,6 +142,14 @@ def teacher_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+def admin_or_teacher_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get('admin_logged_in') and not session.get('teacher_logged_in'):
+            return redirect(url_for('teacher_login', next=request.path))
+        return f(*args, **kwargs)
+    return wrapper
+
 def student_required(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -1677,7 +1685,7 @@ def get_classes():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/classes', methods=['POST'])
-@admin_required
+@admin_or_teacher_required
 def create_class():
     """创建新班级"""
     try:
@@ -1689,14 +1697,14 @@ def create_class():
         if not class_name:
             return jsonify({'success': False, 'error': '班级名称不能为空'}), 400
         
-        class_id = test_library.add_class(class_name, grade, teacher_name)
-        return jsonify({'success': True, 'class_id': class_id})
+        result = test_library.add_class(data)
+        return jsonify(result)
     except Exception as e:
         logger.error(f'创建班级失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/classes/<class_id>/students', methods=['POST'])
-@admin_required
+@admin_or_teacher_required
 def add_student(class_id):
     """添加学生到班级"""
     try:
@@ -1710,6 +1718,34 @@ def add_student(class_id):
             return jsonify({'success': False, 'error': '班级未找到'}), 404
     except Exception as e:
         logger.error(f'添加学生失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/classes/<class_id>/students/<student_number>', methods=['DELETE'])
+@admin_or_teacher_required
+def remove_student(class_id, student_number):
+    """从班级删除学生"""
+    try:
+        success = test_library.remove_student_from_class(class_id, student_number)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': '学生未找到'}), 404
+    except Exception as e:
+        logger.error(f'删除学生失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/students/<student_number>/password', methods=['PUT'])
+@admin_or_teacher_required
+def reset_student_password(student_number):
+    """重置学生密码"""
+    try:
+        data = request.get_json() or {}
+        new_password = data.get('password', student_number)  # 默认密码是学号
+        
+        result = test_library.reset_student_password(student_number, new_password)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'重置密码失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/classes/<class_id>/papers', methods=['POST'])
