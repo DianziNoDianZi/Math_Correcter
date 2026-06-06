@@ -16,6 +16,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from app.utils.helpers import get_timestamp
 
+# 导入 AI 分析服务
+from app.services.ai_analysis_service import (
+    generate_exam_analysis as ai_generate_exam_analysis,
+    generate_class_report as ai_generate_class_report,
+    invalidate_exam_cache,
+    invalidate_class_cache
+)
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -418,30 +426,28 @@ def delete_exam(exam_id: str) -> bool:
 
 # ========== 答题卡识别 ==========
 
-def detect_student_number(image_path: str) -> str:
-    """识别学生考号（从文件名提取作为后备方案）"""
-    filename = os.path.basename(image_path)
-    # 去掉扩展名
-    name_without_ext = os.path.splitext(filename)[0]
-    # 尝试从文件名提取纯数字学号（如 "20240001.jpg" -> "20240001"）
-    # 也支持 "张三_20240001.jpg" 格式
-    import re
-    # 优先匹配连续5位以上数字
-    match = re.search(r'(\d{5,})', name_without_ext)
-    if match:
-        return match.group(1)
-    # 如果文件名本身是纯数字
-    if name_without_ext.isdigit() and len(name_without_ext) >= 4:
-        return name_without_ext
+def detect_student_number(image_path: str, original_filename: str = '') -> str:
+    """识别学生考号（AI 优先，失败时从文件名提取）"""
+    from app.services.ai_scan_service import detect_student_number_ai
+    
+    result = detect_student_number_ai(image_path, original_filename)
+    if result:
+        logger.info(f'学号识别结果: {result}')
+        return result
     return ''
 
 def detect_answers(image_path: str, questions: List[Dict]) -> Dict[int, Any]:
-    """识别学生答题结果（暂时返回空，由教师在审核页手动批改）"""
-    answers = {}
+    """识别学生答题结果（AI 优先，失败时留空）"""
+    from app.services.ai_scan_service import detect_answers_ai
+    
+    ai_answers = detect_answers_ai(image_path, questions)
+    # 转换为兼容格式：{题号: 答案字符串}
+    result = {}
     for q in questions:
-        if q['type'] in ['choice', 'true_false', 'fill_blank']:
-            answers[q['number']] = ''  # 留空，教师审核时填写
-    return answers
+        q_num = q['number']
+        if q_num in ai_answers:
+            result[q_num] = ai_answers[q_num].get('answer', '')
+    return result
 
 def scan_answer_sheet(exam_id: str, image_path: str, original_filename: str = '') -> Dict[str, Any]:
     """扫描单张答题卡"""
@@ -453,7 +459,7 @@ def scan_answer_sheet(exam_id: str, image_path: str, original_filename: str = ''
         return {'success': False, 'error': '考试状态不允许扫描'}
     
     try:
-        student_number = detect_student_number(original_filename or image_path)
+        student_number = detect_student_number(image_path, original_filename)
         answers = detect_answers(image_path, exam['questions'])
         
         results = []
@@ -507,7 +513,8 @@ def scan_answer_sheet(exam_id: str, image_path: str, original_filename: str = ''
             'correct_count': correct_count,
             'total_questions': len(exam['questions']),
             'accuracy': (total_score / exam['total_score'] * 100) if exam['total_score'] > 0 else 0,
-            'knowledge_stats': knowledge_stats
+            'knowledge_stats': knowledge_stats,
+            'ai_scanned': True  # 标记为AI/程序扫描
         }
     except Exception as e:
         logger.error(f'答题卡扫描失败: {e}')
@@ -616,6 +623,7 @@ def confirm_exam_scores(exam_id: str) -> Dict[str, Any]:
             
             e['status'] = 'completed'
             save_exams_metadata(metadata)
+            invalidate_exam_cache(exam_id)  # 清除 AI 分析缓存
             return {'success': True, 'statistics': e['statistics']}
     
     return {'success': False, 'error': '考试不存在'}
@@ -634,6 +642,7 @@ def adjust_score(exam_id: str, student_number: str, score: float) -> Dict[str, A
                     if max_score > 0:
                         s['accuracy'] = (score / max_score) * 100
                     save_exams_metadata(metadata)
+                    invalidate_exam_cache(exam_id)  # 清除 AI 分析缓存
                     return {'success': True}
             return {'success': False, 'error': '未找到该学生成绩'}
     return {'success': False, 'error': '考试不存在'}
@@ -683,7 +692,13 @@ def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
         'exam': exam,
         'question_stats': question_stats,
         'knowledge_stats': knowledge_stats,
-        'statistics': exam.get('statistics', {})
+        'statistics': exam.get('statistics', {}),
+        'ai_report': ai_generate_exam_analysis({
+            'exam': exam,
+            'question_stats': question_stats,
+            'knowledge_stats': knowledge_stats,
+            'statistics': exam.get('statistics', {})
+        })
     }
 
 # ========== 批量上传分析（兼容旧接口）==========
@@ -887,3 +902,75 @@ def generate_class_report(class_id: str) -> Dict[str, Any]:
     save_json(report_path, report)
     
     return {'success': True, 'report': report}
+
+
+# ========== AI 分析接口 ==========
+
+def generate_ai_exam_report(exam_id: str) -> Dict[str, Any]:
+    """生成 AI 考试分析报告"""
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
+    
+    # 构建分析数据
+    question_stats = []
+    for q in exam['questions']:
+        correct_count = 0
+        for score in exam.get('scores', []):
+            for r in score.get('results', []):
+                if r['number'] == q['number'] and r.get('is_correct'):
+                    correct_count += 1
+        total = len(exam.get('scores', []))
+        question_stats.append({
+            'number': q['number'],
+            'type': q['type'],
+            'knowledge_points': q.get('knowledge_points', []),
+            'correct_count': correct_count,
+            'error_count': total - correct_count,
+            'error_rate': ((total - correct_count) / total * 100) if total > 0 else 0
+        })
+    
+    knowledge_stats = {}
+    for q in exam['questions']:
+        for kp in q.get('knowledge_points', []):
+            if kp not in knowledge_stats:
+                knowledge_stats[kp] = {'total': 0, 'correct': 0}
+            knowledge_stats[kp]['total'] += len(exam.get('scores', []))
+    
+    for score in exam.get('scores', []):
+        for r in score.get('results', []):
+            for kp in r.get('knowledge_points', []):
+                if kp in knowledge_stats and r.get('is_correct'):
+                    knowledge_stats[kp]['correct'] += 1
+    
+    for kp, stats in knowledge_stats.items():
+        stats['mastery_rate'] = (stats['correct'] / stats['total'] * 100) if stats['total'] > 0 else 0
+    
+    analysis_data = {
+        'exam': exam,
+        'question_stats': question_stats,
+        'knowledge_stats': knowledge_stats,
+        'statistics': exam.get('statistics', {})
+    }
+    
+    report = ai_generate_exam_analysis(analysis_data)
+    return {
+        'success': True,
+        'exam_id': exam_id,
+        'ai_report': report
+    }
+
+
+def generate_ai_class_report(class_id: str) -> Dict[str, Any]:
+    """生成 AI 班级学情分析报告"""
+    performance = analyze_class_performance(class_id)
+    if not performance.get('success'):
+        return performance
+    
+    report = ai_generate_class_report(performance)
+    return {
+        'success': True,
+        'class_id': class_id,
+        'class_name': performance.get('class_name'),
+        'ai_report': report
+    }

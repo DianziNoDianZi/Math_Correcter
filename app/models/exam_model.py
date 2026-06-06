@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from app.models.base import BaseModel
 from app.utils.helpers import generate_id, get_timestamp
+from app.services.ai_analysis_service import invalidate_exam_cache
 
 class ExamModel(BaseModel):
     """考试数据模型"""
@@ -201,7 +202,8 @@ class ExamModel(BaseModel):
                     'accuracy': accuracy,
                     'results': results,
                     'confirmed': False,
-                    'created_at': get_timestamp()
+                    'created_at': get_timestamp(),
+                    'ai_scanned': False  # 手动录入
                 }
                 
                 # 检查是否已存在该学生成绩
@@ -209,6 +211,7 @@ class ExamModel(BaseModel):
                     if existing_score.get('student_number') == score_data.get('student_number'):
                         exam['scores'][i] = new_score
                         self._save()
+                        invalidate_exam_cache(exam_id)  # 清除 AI 分析缓存
                         return {'success': True, 'updated': True}
                 
                 exam.setdefault('scores', []).append(new_score)
@@ -216,6 +219,7 @@ class ExamModel(BaseModel):
                 if exam.get('status') in ['ready', 'draft']:
                     exam['status'] = 'reviewing'
                 self._save()
+                invalidate_exam_cache(exam_id)  # 清除 AI 分析缓存
                 return {'success': True, 'updated': False}
         
         return {'success': False, 'error': '考试未找到'}

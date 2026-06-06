@@ -84,4 +84,17 @@ def init_class_routes(class_service):
             'fail_list': fail_list[:10]
         })
     
+    @classes_bp.route('/<class_id>/ai-report', methods=['GET'])
+    def get_ai_class_report(class_id):
+        """获取 AI 生成的班级学情分析报告"""
+        try:
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+            import test_library
+            result = test_library.generate_ai_class_report(class_id)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
     return classes_bp

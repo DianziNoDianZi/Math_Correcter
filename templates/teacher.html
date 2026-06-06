@@ -128,6 +128,23 @@
                     <div class="mb-6"><h3 class="font-medium mb-3">各题错题率</h3><div id="question-stats" class="space-y-2"></div></div>
                     <div><h3 class="font-medium mb-3">知识点掌握情况</h3><div id="knowledge-stats" class="space-y-2"></div></div>
                 </div>
+                <!-- AI 分析报告 -->
+                <div id="ai-report-container" class="hidden mt-6">
+                    <div class="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-6 border border-purple-200">
+                        <div class="flex items-center gap-2 mb-4">
+                            <span class="px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 font-medium">AI 生成</span>
+                            <h3 class="font-semibold text-gray-800">AI 智能分析报告</h3>
+                        </div>
+                        <div id="ai-report-content" class="prose prose-sm max-w-none text-gray-700"></div>
+                    </div>
+                </div>
+                <!-- AI 分析 Loading -->
+                <div id="ai-report-loading" class="hidden mt-6">
+                    <div class="bg-gray-50 rounded-lg p-6 text-center">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-300 border-t-indigo-600 mb-3"></div>
+                        <p class="text-gray-500 text-sm">AI 正在分析中...</p>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -158,7 +175,10 @@
         <div class="bg-white rounded-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto shadow-2xl"><div class="p-6">
             <div class="flex justify-between items-center mb-6">
                 <div><h2 id="modal-class-title" class="text-xl font-semibold"></h2><p class="text-sm text-gray-500" id="modal-class-info"></p></div>
-                <button onclick="closeModal('modal-class-detail')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                <div class="flex gap-2">
+                    <button onclick="loadClassAiReport()" class="bg-purple-500 hover:bg-purple-600 text-white text-sm font-bold py-2 px-4 rounded-lg transition">AI 学情分析</button>
+                    <button onclick="closeModal('modal-class-detail')" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                </div>
             </div>
             <div class="bg-gray-50 rounded-lg p-4 mb-4">
                 <h3 class="font-medium mb-3">添加学生</h3>
@@ -178,6 +198,22 @@
                     <input type="text" id="student-search" placeholder="搜索学号或姓名..." oninput="renderStudentList()" class="border rounded-lg py-1.5 px-3 text-sm w-64 focus:ring-2 focus:ring-indigo-300 outline-none">
                 </div>
                 <div id="student-list" class="space-y-2 max-h-96 overflow-y-auto"></div>
+            </div>
+            <!-- AI 班级分析报告 -->
+            <div id="class-ai-report-container" class="hidden mt-6">
+                <div class="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-6 border border-purple-200">
+                    <div class="flex items-center gap-2 mb-4">
+                        <span class="px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 font-medium">AI 生成</span>
+                        <h3 class="font-semibold text-gray-800">AI 班级学情分析</h3>
+                    </div>
+                    <div id="class-ai-report-content" class="prose prose-sm max-w-none text-gray-700"></div>
+                </div>
+            </div>
+            <div id="class-ai-report-loading" class="hidden mt-6">
+                <div class="bg-gray-50 rounded-lg p-6 text-center">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-300 border-t-indigo-600 mb-3"></div>
+                    <p class="text-gray-500 text-sm">AI 正在分析中...</p>
+                </div>
             </div>
         </div></div>
     </div>
@@ -386,8 +422,34 @@
             document.getElementById('modal-class-title').textContent = currentClass.name;
             document.getElementById('modal-class-info').textContent = `年级: ${currentClass.grade || '-'} | 班主任: ${currentClass.teacher_name || '-'}`;
             document.getElementById('student-search').value = '';
+            document.getElementById('class-ai-report-container').classList.add('hidden');
+            document.getElementById('class-ai-report-loading').classList.add('hidden');
             renderStudentList();
             showModal('modal-class-detail');
+        }
+
+        async function loadClassAiReport() {
+            const container = document.getElementById('class-ai-report-container');
+            const loading = document.getElementById('class-ai-report-loading');
+            const content = document.getElementById('class-ai-report-content');
+            
+            container.classList.add('hidden');
+            loading.classList.remove('hidden');
+            
+            try {
+                const res = await fetch(`${API}/api/classes/${currentClass.id}/ai-report`);
+                const data = await res.json();
+                loading.classList.add('hidden');
+                if (data.success && data.ai_report) {
+                    container.classList.remove('hidden');
+                    content.innerHTML = markdownToHtml(data.ai_report);
+                } else {
+                    showToast('AI 分析不可用，请确认已配置文本模型', 'warning');
+                }
+            } catch (e) {
+                loading.classList.add('hidden');
+                showToast('AI 分析请求失败: ' + e.message, 'error');
+            }
         }
 
         function renderStudentList() {
@@ -781,7 +843,12 @@
                         <td class="px-4 py-2">${s.student_name || '未匹配'}</td>
                         <td class="px-4 py-2 font-medium">${s.total_score}/${s.max_score}</td>
                         <td class="px-4 py-2">${(s.accuracy || 0).toFixed(1)}%</td>
-                        <td class="px-4 py-2"><span class="px-2 py-1 rounded text-xs ${isMatched ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">${isMatched ? '已匹配' : '未匹配'}</span></td>
+                        <td class="px-4 py-2">
+                            <div class="flex flex-col gap-1">
+                                <span class="px-2 py-1 rounded text-xs inline-block ${isMatched ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">${isMatched ? '已匹配' : '未匹配'}</span>
+                                ${s.ai_scanned ? '<span class="px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 inline-block">AI扫描</span>' : '<span class="px-2 py-1 rounded text-xs bg-gray-100 text-gray-600 inline-block">手动录入</span>'}
+                            </div>
+                        </td>
                         <td class="px-4 py-2">${isMatched ? `<button onclick="event.stopPropagation(); showAdjustScore('${s.student_number}', '${s.student_name}', ${s.total_score})" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">调整</button>` : ''}</td>
                     </tr>
                     <tr id="detail-${idx}" class="hidden detail-row bg-gray-50">
@@ -881,8 +948,8 @@
             if (!currentExam) return;
             const scores = currentExam.scores || [];
             if (scores.length === 0) { showToast('没有可导出的成绩', 'warning'); return; }
-            const headers = ['学号', '姓名', '总分', '满分', '正确率', '状态'];
-            const rows = scores.map(s => [s.student_number || '', s.student_name || '未匹配', s.total_score || 0, s.max_score || 0, ((s.accuracy || 0)).toFixed(1) + '%', s.student_id ? '已匹配' : '未匹配']);
+            const headers = ['学号', '姓名', '总分', '满分', '正确率', '状态', '录入方式'];
+            const rows = scores.map(s => [s.student_number || '', s.student_name || '未匹配', s.total_score || 0, s.max_score || 0, ((s.accuracy || 0)).toFixed(1) + '%', s.student_id ? '已匹配' : '未匹配', s.ai_scanned ? 'AI扫描' : '手动录入']);
             const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
             const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8' });
             const url = URL.createObjectURL(blob);
@@ -931,6 +998,40 @@
                     <span class="text-sm w-16 text-right ${st.mastery_rate >= 70 ? 'text-green-600' : st.mastery_rate >= 50 ? 'text-yellow-600' : 'text-red-600'}">${st.mastery_rate.toFixed(1)}%</span>
                 </div>
             `).join('') || '<p class="text-gray-500 text-sm">暂无数据</p>';
+            
+            // 处理 AI 报告
+            const reportContainer = document.getElementById('ai-report-container');
+            const reportLoading = document.getElementById('ai-report-loading');
+            const reportContent = document.getElementById('ai-report-content');
+            
+            if (data.ai_report) {
+                reportContainer.classList.remove('hidden');
+                reportLoading.classList.add('hidden');
+                reportContent.innerHTML = markdownToHtml(data.ai_report);
+            } else if (data.ai_report === null) {
+                reportContainer.classList.add('hidden');
+                reportLoading.classList.add('hidden');
+            } else {
+                reportContainer.classList.add('hidden');
+                reportLoading.classList.add('hidden');
+            }
+        }
+
+        // 简单 Markdown 转 HTML
+        function markdownToHtml(markdown) {
+            if (!markdown) return '';
+            let html = markdown
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2 class="text-lg font-semibold mt-4 mb-2">$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1 class="text-xl font-bold mt-4 mb-3">$1</h1>')
+                .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                .replace(/\*(.*)\*/gim, '<em>$1</em>')
+                .replace(/^\- (.*)$/gim, '<li>$1</li>')
+                .replace(/^\d+\. (.*)$/gim, '<li>$1</li>')
+                .replace(/\n/gim, '<br>');
+            // 将连续的 li 包裹在 ul 中
+            html = html.replace(/(<li>.*<\/li>\n)+/g, '<ul class="list-disc ml-5 my-2">$&</ul>');
+            return html;
         }
     </script>
 </body>

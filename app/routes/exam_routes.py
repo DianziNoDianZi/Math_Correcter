@@ -182,5 +182,14 @@ def init_exam_routes(exam_service):
             return jsonify(result)
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @exams_bp.route('/<exam_id>/ai-report', methods=['GET'])
+    def get_ai_exam_report(exam_id):
+        """获取 AI 生成的考试分析报告"""
+        try:
+            result = test_library.generate_ai_exam_report(exam_id)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
     
     return exams_bp
