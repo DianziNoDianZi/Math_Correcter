@@ -2175,11 +2175,6 @@ def export_class_scores(class_id):
 
 # ========== 学生端成绩查询API ==========
 
-@app.route('/student')
-def student_portal():
-    """学生成绩查询入口页面"""
-    return render_template('student.html')
-
 @app.route('/api/student/<student_number>/scores')
 def get_student_scores(student_number):
     """获取学生的所有成绩"""
