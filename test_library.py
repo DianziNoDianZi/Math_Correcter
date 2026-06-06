@@ -1518,6 +1518,111 @@ def get_student_exam_detail(student_number: str, exam_id: str) -> Optional[Dict[
         'questions': question_details
     }
 
+# ========== 智能答案判断 ==========
+
+def normalize_math_answer(answer: str) -> str:
+    """
+    标准化数学答案格式
+    
+    Args:
+        answer: 原始答案
+    
+    Returns:
+        标准化后的答案
+    """
+    if not answer:
+        return ''
+    
+    # 去除空格和换行
+    answer = answer.strip()
+    
+    # 常见符号标准化
+    replacements = [
+        ('×', '*'), ('÷', '/'), ('−', '-'), 
+        ('（', '('), ('）', ')'), ('，', ','),
+        ('。', '.'), ('０', '0'), ('１', '1'), ('２', '2'),
+        ('３', '3'), ('４', '4'), ('５', '5'), ('６', '6'),
+        ('７', '7'), ('８', '8'), ('９', '9'),
+    ]
+    
+    for old, new in replacements:
+        answer = answer.replace(old, new)
+    
+    # 去除多余空格
+    answer = ' '.join(answer.split())
+    
+    return answer
+
+
+def check_math_answer(student_answer: str, correct_answer: str, question_type: str = 'choice') -> tuple[bool, float, str]:
+    """
+    智能检查数学答案
+    
+    Args:
+        student_answer: 学生答案
+        correct_answer: 正确答案
+        question_type: 题目类型
+    
+    Returns:
+        (是否正确, 得分比例, 反馈信息)
+    """
+    student = normalize_math_answer(student_answer)
+    correct = normalize_math_answer(correct_answer)
+    
+    if not student:
+        return False, 0.0, '请输入答案'
+    
+    if not correct:
+        return True, 1.0, '答案已保存（暂无标准答案）'
+    
+    # 精确匹配
+    if student == correct:
+        return True, 1.0, '回答完全正确！'
+    
+    # 选择题特殊处理：可能只是选项字母不同
+    if question_type == 'choice':
+        if len(student) == 1 and len(correct) == 1:
+            if student.upper() == correct.upper():
+                return True, 1.0, '回答正确！'
+        # 如果都是单字母，宽松匹配
+        if len(student) == 1 and len(correct) > 1 and student.upper() in correct.upper():
+            return True, 0.8, '基本正确！'
+    
+    # 尝试数值匹配（适用于计算题）
+    try:
+        student_num = float(student)
+        correct_num = float(correct)
+        # 允许微小误差（浮点计算误差）
+        if abs(student_num - correct_num) < 0.001:
+            return True, 1.0, '计算结果正确！'
+        # 接近答案（可能是计算步骤错误）
+        if abs(student_num - correct_num) < abs(correct_num) * 0.1:
+            return False, 0.3, '答案接近，可能计算有误'
+    except (ValueError, TypeError):
+        pass
+    
+    # 判断题处理
+    if question_type == 'true_false':
+        true_variants = ['对', '正确', 'true', 't', 'yes', 'y', '1', '√']
+        false_variants = ['错', '错误', 'false', 'f', 'no', 'n', '0', '×']
+        
+        student_lower = student.lower()
+        correct_lower = correct.lower()
+        
+        if (student_lower in true_variants and correct_lower in true_variants) or \
+           (student_lower in false_variants and correct_lower in false_variants):
+            return True, 1.0, '判断正确！'
+    
+    # 包含关系匹配（主观题）
+    if question_type in ['subjective', 'fill_blank']:
+        if correct in student:
+            return True, 0.7, '答案包含关键内容！'
+        if student in correct:
+            return True, 0.5, '答案部分正确！'
+    
+    return False, 0.0, '回答错误，请查看正确答案'
+
+
 # ========== 错题本功能 ==========
 
 def get_student_wrong_questions(student_number: str) -> Dict[str, Any]:
@@ -1734,6 +1839,132 @@ def get_wrong_question_detail(student_number: str, exam_id: str, question_number
             'is_mastered': q_result.get('is_mastered', False),
             'practice_count': q_result.get('practice_count', 0)
         }
+    }
+
+
+# ========== 练习记录功能 ==========
+
+def save_practice_record(student_number: str, exam_id: str, question_number: int, 
+                         student_answer: str, is_correct: bool, 
+                         score_ratio: float, feedback: str) -> Dict[str, Any]:
+    """
+    保存练习记录
+    
+    Args:
+        student_number: 学号
+        exam_id: 考试ID
+        question_number: 题目编号
+        student_answer: 学生答案
+        is_correct: 是否正确
+        score_ratio: 得分比例
+        feedback: 反馈信息
+    
+    Returns:
+        操作结果
+    """
+    exam = get_exam_by_id(exam_id)
+    if not exam:
+        return {'success': False, 'error': '考试不存在'}
+    
+    metadata = load_exams_metadata()
+    
+    for exam_data in metadata['exams']:
+        if exam_data['id'] == exam_id:
+            for score in exam_data.get('scores', []):
+                if score.get('student_number') == student_number:
+                    results = score.get('results', [])
+                    for result in results:
+                        if result.get('number') == question_number:
+                            # 初始化练习记录列表
+                            if 'practice_records' not in result:
+                                result['practice_records'] = []
+                            
+                            # 添加练习记录
+                            practice_record = {
+                                'time': datetime.now().isoformat(),
+                                'student_answer': student_answer,
+                                'is_correct': is_correct,
+                                'score_ratio': score_ratio,
+                                'feedback': feedback
+                            }
+                            result['practice_records'].append(practice_record)
+                            
+                            # 更新练习次数
+                            result['practice_count'] = result.get('practice_count', 0) + 1
+                            
+                            # 如果这次正确，增加掌握概率
+                            if is_correct:
+                                # 如果连续正确多次，标记为已掌握
+                                recent_correct = sum(
+                                    1 for r in result.get('practice_records', [])[-3:]
+                                    if r.get('is_correct')
+                                )
+                                if recent_correct >= 2:
+                                    result['is_mastered'] = True
+                            
+                            save_exams_metadata(metadata)
+                            return {'success': True, 'message': '练习记录已保存'}
+    
+    return {'success': False, 'error': '未找到该题目'}
+
+
+def get_student_practice_records(student_number: str, limit: int = 20) -> Dict[str, Any]:
+    """
+    获取学生练习记录
+    
+    Args:
+        student_number: 学号
+        limit: 最多返回记录数
+    
+    Returns:
+        练习记录列表
+    """
+    metadata = load_exams_metadata()
+    all_records = []
+    
+    for exam in metadata['exams']:
+        exam_name = exam.get('name', '未知考试')
+        exam_id = exam.get('id', '')
+        
+        for score in exam.get('scores', []):
+            if score.get('student_number') == student_number:
+                results = score.get('results', [])
+                
+                for result in results:
+                    # 查找有练习记录的题目
+                    practice_records = result.get('practice_records', [])
+                    
+                    if practice_records:
+                        q_number = result.get('number', 0)
+                        
+                        # 找到题目信息
+                        q_content = ''
+                        for q in exam.get('questions', []):
+                            if q.get('number') == q_number:
+                                q_content = q.get('content', '')
+                                break
+                        
+                        for record in practice_records:
+                            all_records.append({
+                                'exam_id': exam_id,
+                                'exam_name': exam_name,
+                                'question_number': q_number,
+                                'question_content': q_content,
+                                'time': record.get('time'),
+                                'student_answer': record.get('student_answer', ''),
+                                'is_correct': record.get('is_correct', False),
+                                'score_ratio': record.get('score_ratio', 0),
+                                'feedback': record.get('feedback', '')
+                            })
+    
+    # 按时间倒序排序
+    all_records.sort(key=lambda x: x.get('time', ''), reverse=True)
+    
+    return {
+        'success': True,
+        'student_number': student_number,
+        'total_records': len(all_records),
+        'records': all_records[:limit]
     }
 
 

@@ -2087,6 +2087,62 @@ def get_wrong_question_detail_api(student_number, exam_id, question_number):
         logger.error(f'获取错题详情失败: {e}')
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+# ========== 练习记录API ==========
+
+@app.route('/api/student/<student_number>/practice/submit', methods=['POST'])
+def submit_practice_answer(student_number):
+    """提交练习答案并保存记录"""
+    try:
+        data = request.get_json() or {}
+        exam_id = data.get('exam_id')
+        question_number = data.get('question_number')
+        student_answer = data.get('answer', '')
+        question_type = data.get('question_type', 'choice')
+        
+        # 获取题目信息以取得正确答案
+        detail_result = test_library.get_wrong_question_detail(student_number, exam_id, question_number)
+        
+        if not detail_result:
+            return jsonify({'success': False, 'error': '未找到题目信息'}), 404
+        
+        correct_answer = detail_result.get('question', {}).get('correct_answer', '')
+        
+        # 智能判断答案
+        is_correct, score_ratio, feedback = test_library.check_math_answer(
+            student_answer, correct_answer, question_type
+        )
+        
+        # 保存练习记录
+        save_result = test_library.save_practice_record(
+            student_number, exam_id, question_number,
+            student_answer, is_correct, score_ratio, feedback
+        )
+        
+        return jsonify({
+            'success': True,
+            'is_correct': is_correct,
+            'score_ratio': score_ratio,
+            'feedback': feedback,
+            'save_result': save_result
+        })
+    except Exception as e:
+        logger.error(f'提交练习答案失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/student/<student_number>/practice/records')
+def get_practice_records_api(student_number):
+    """获取练习记录"""
+    try:
+        limit = request.args.get('limit', 20, type=int)
+        result = test_library.get_student_practice_records(student_number, limit)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f'获取练习记录失败: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 # ========== 答题卡识别API ==========
 
 @app.route('/api/scan/score', methods=['POST'])
