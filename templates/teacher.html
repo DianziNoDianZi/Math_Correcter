@@ -21,9 +21,24 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+    <!-- 顶部工具栏 -->
+    <div class="bg-white shadow-sm border-b">
+        <div class="container mx-auto px-4 max-w-7xl">
+            <div class="flex justify-between items-center py-4">
+                <h1 class="text-2xl font-bold text-indigo-600">📚 教师阅卷系统</h1>
+                <div class="flex gap-3">
+                    <a href="/" class="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors">
+                        ← 返回首页
+                    </a>
+                    <a href="/teacher/logout" class="px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg transition-colors">
+                        退出登录
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="container mx-auto px-4 py-8 max-w-7xl">
-        <h1 class="text-3xl font-bold text-center text-indigo-600 mb-8">📚 教师阅卷系统</h1>
-        
         <!-- 顶部导航 -->
         <div class="bg-white rounded-lg shadow mb-8">
             <div class="flex border-b">

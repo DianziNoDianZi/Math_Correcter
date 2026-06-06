@@ -134,6 +134,21 @@ def admin_required(f):
         return f(*args, **kwargs)
     return wrapper
 
+def teacher_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get('teacher_logged_in'):
+            return redirect(url_for('teacher_login', next=request.path))
+        return f(*args, **kwargs)
+    return wrapper
+
+def student_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        # 学生端不需要登录，直接访问
+        return f(*args, **kwargs)
+    return wrapper
+
 def ensure_ascii(s, field_name):
     """确保字符串只包含ASCII字符"""
     if not s:
@@ -259,6 +274,18 @@ def admin_login():
         flash('无效的用户名或密码')
     return render_template('admin_login.html')
 
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin_logged_in', None)
+    return redirect(url_for('index'))
+
+
+@app.route('/teacher/logout')
+def teacher_logout():
+    session.pop('teacher_logged_in', None)
+    return redirect(url_for('index'))
+
 @app.before_request
 def inject_customization():
     # IP统计和封禁检查
@@ -280,15 +307,41 @@ def inject_customization():
 
 @app.route('/')
 def index():
-    """主页，返回网页版客户端UI"""
-    return render_template('index.html')
+    """统一首页入口，选择身份"""
+    return render_template('home.html')
+
+
+# 教师端登录页面
+@app.route('/teacher/login', methods=['GET', 'POST'])
+def teacher_login():
+    if request.method == 'POST':
+        # 这里可以添加教师账号验证逻辑
+        # 目前暂时使用简单的教师账号
+        teacher_user = os.environ.get('TEACHER_USER', 'teacher')
+        teacher_pass = os.environ.get('TEACHER_PASS', 'teacher123')
+        user = request.form.get('username')
+        pwd = request.form.get('password')
+        if user == teacher_user and pwd == teacher_pass:
+            session['teacher_logged_in'] = True
+            session['teacher_name'] = user
+            next_url = request.args.get('next') or url_for('teacher_page')
+            return redirect(next_url)
+        flash('无效的用户名或密码')
+    return render_template('teacher_login.html')
 
 
 @app.route('/teacher')
-@admin_required
+@teacher_required
 def teacher_page():
     """教师阅卷系统"""
     return render_template('teacher.html')
+
+
+# 学生端页面
+@app.route('/student')
+def student_page():
+    """学生端系统"""
+    return render_template('student.html')
 
 @app.route('/simplified')
 @admin_required
