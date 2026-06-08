@@ -58,18 +58,27 @@ def init_exam_routes(exam_service):
                 avg_score = sum(score_values) / len(score_values)
                 pass_count = sum(1 for s in scores if s.get('accuracy', 0) >= 60)
                 pass_rate = pass_count / len(scores) * 100 if scores else 0
+                # 计算匹配/未匹配数量
+                matched_count = sum(1 for s in scores if s.get('student_number') and s.get('student_name') and s.get('student_name') != '未匹配')
+                unmatched_count = total_count - matched_count
             else:
                 avg_score = 0
                 pass_rate = 0
+                matched_count = 0
+                unmatched_count = 0
             
             # 分页获取当前页数据
             start_idx = (page - 1) * per_page
             end_idx = start_idx + per_page
             paginated_scores = scores[start_idx:end_idx]
             
+            # 创建返回用的考试副本，只包含当前页的成绩
+            exam_for_return = dict(exam)
+            exam_for_return['scores'] = paginated_scores
+            
             return jsonify({
                 'success': True,
-                'exam': exam,
+                'exam': exam_for_return,
                 'pagination': {
                     'page': page,
                     'per_page': per_page,
@@ -79,7 +88,9 @@ def init_exam_routes(exam_service):
                 'statistics': {
                     'total_students': total_count,
                     'average_score': round(avg_score, 2),
-                    'pass_rate': round(pass_rate, 2)
+                    'pass_rate': round(pass_rate, 2),
+                    'matched': matched_count,
+                    'unmatched': unmatched_count
                 }
             })
         return jsonify({'success': False, 'error': '考试未找到'}), 404

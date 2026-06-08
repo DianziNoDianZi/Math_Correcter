@@ -1431,9 +1431,27 @@
             } catch (e) { showToast('删除失败', 'error'); }
         }
 
-        function goToScan(examId) { showSection('scan'); document.getElementById('scan-exam-select').value = examId; onExamSelected(); }
-        function goToReview(examId) { showSection('review'); document.getElementById('review-exam-select').value = examId; loadReviewData(); }
-        function goToAnalysis(examId) { showSection('analysis'); document.getElementById('analysis-exam-select').value = examId; loadAnalysisData(); }
+        function goToScan(examId) { 
+            showSection('scan'); 
+            loadExamSelect().then(() => {
+                document.getElementById('scan-exam-select').value = examId; 
+                onExamSelected(); 
+            });
+        }
+        function goToReview(examId) { 
+            showSection('review'); 
+            loadReviewExamSelect().then(() => {
+                document.getElementById('review-exam-select').value = examId; 
+                loadReviewData(); 
+            });
+        }
+        function goToAnalysis(examId) { 
+            showSection('analysis'); 
+            loadAnalysisExamSelect().then(() => {
+                document.getElementById('analysis-exam-select').value = examId; 
+                loadAnalysisData(); 
+            });
+        }
 
         // ========== 答题卡扫描 ==========
         async function loadExamSelect() {
@@ -1534,11 +1552,8 @@
                     if (data.statistics) {
                         document.getElementById('review-total').textContent = data.statistics.total_students || 0;
                         document.getElementById('review-avg').textContent = `${(data.statistics.average_score || 0).toFixed(1)}%`;
-                        const passRate = data.statistics.pass_rate || 0;
-                        // 重新计算匹配/未匹配
-                        const matched = allScores.filter(s => s.student_id || (s.student_name && s.student_name !== '未匹配')).length;
-                        document.getElementById('review-matched').textContent = matched;
-                        document.getElementById('review-unmatched').textContent = allScores.length - matched;
+                        document.getElementById('review-matched').textContent = data.statistics.matched || 0;
+                        document.getElementById('review-unmatched').textContent = data.statistics.unmatched || 0;
                     }
                     renderReviewContent(); 
                     updatePaginationControls();
@@ -1553,7 +1568,7 @@
             const questions = currentExam.questions || [];
             const tbody = document.getElementById('review-score-body');
             tbody.innerHTML = scores.map((s, idx) => {
-                const isMatched = !!(s.student_id || (s.student_name && s.student_name !== '未匹配'));
+                const isMatched = !!(s.student_number && (s.student_name && s.student_name !== '未匹配'));
                 const results = s.results || [];
                 return `
                     <tr class="${isMatched ? '' : 'bg-yellow-50'} hover:bg-gray-50" data-student="${s.student_number}">
@@ -1727,6 +1742,7 @@
             document.getElementById('batch-student-count').textContent = students.length;
             document.getElementById('batch-adjust-type').value = 'add';
             document.getElementById('batch-adjust-score').value = '';
+            document.getElementById('batch-adjust-reason').value = '';
             showModal('modal-batch-adjust');
         }
 
@@ -1736,6 +1752,7 @@
             document.getElementById('batch-student-count').textContent = students.length;
             document.getElementById('batch-adjust-type').value = 'deduct';
             document.getElementById('batch-adjust-score').value = '';
+            document.getElementById('batch-adjust-reason').value = '';
             showModal('modal-batch-adjust');
         }
 
@@ -1745,6 +1762,7 @@
             document.getElementById('batch-student-count').textContent = students.length;
             document.getElementById('batch-adjust-type').value = 'set';
             document.getElementById('batch-adjust-score').value = '';
+            document.getElementById('batch-adjust-reason').value = '';
             showModal('modal-batch-adjust');
         }
 
