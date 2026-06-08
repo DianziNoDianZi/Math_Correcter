@@ -44,9 +44,43 @@ def init_exam_routes(exam_service):
         exam_service.model.reload()  # 刷新缓存，确保获取最新数据
         exam = exam_service.get_exam(exam_id)
         if exam:
+            # 获取分页参数
+            page = request.args.get('page', 1, type=int)
+            per_page = request.args.get('per_page', 20, type=int)
+            
+            scores = exam.get('scores', [])
+            total_count = len(scores)
+            total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 1
+            
+            # 计算统计数据（基于所有成绩）
+            if scores:
+                score_values = [s.get('total_score', 0) for s in scores]
+                avg_score = sum(score_values) / len(score_values)
+                pass_count = sum(1 for s in scores if s.get('accuracy', 0) >= 60)
+                pass_rate = pass_count / len(scores) * 100 if scores else 0
+            else:
+                avg_score = 0
+                pass_rate = 0
+            
+            # 分页获取当前页数据
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            paginated_scores = scores[start_idx:end_idx]
+            
             return jsonify({
                 'success': True,
-                'exam': exam
+                'exam': exam,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total_count': total_count,
+                    'total_pages': total_pages
+                },
+                'statistics': {
+                    'total_students': total_count,
+                    'average_score': round(avg_score, 2),
+                    'pass_rate': round(pass_rate, 2)
+                }
             })
         return jsonify({'success': False, 'error': '考试未找到'}), 404
     
@@ -72,6 +106,18 @@ def init_exam_routes(exam_service):
             exam_id, number, content, correct_answer,
             score, knowledge_points, question_type
         )
+        return jsonify(result)
+    
+    @exams_bp.route('/<exam_id>/questions/import', methods=['POST'])
+    def import_questions(exam_id):
+        """批量导入题目"""
+        data = request.get_json() or {}
+        questions = data.get('questions', [])
+        
+        if not questions:
+            return jsonify({'success': False, 'error': '没有要导入的题目'}), 400
+        
+        result = exam_service.batch_import_questions(exam_id, questions)
         return jsonify(result)
     
     @exams_bp.route('/<exam_id>/ready', methods=['POST'])
@@ -164,11 +210,31 @@ def init_exam_routes(exam_service):
             data = request.get_json() or {}
             student_number = data.get('student_number')
             score = data.get('score')
+            reason = data.get('reason', '')
             
             if not student_number or score is None:
                 return jsonify({'success': False, 'error': '参数不完整'}), 400
             
-            result = test_library.adjust_score(exam_id, student_number, float(score))
+            result = test_library.adjust_score(exam_id, student_number, float(score), reason)
+            exam_service.model.reload()  # 刷新缓存
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @exams_bp.route('/<exam_id>/scores/<student_number>/questions/<int:question_number>', methods=['PUT'])
+    def adjust_question_score(exam_id, student_number, question_number):
+        """调整单题成绩"""
+        try:
+            data = request.get_json() or {}
+            new_score = data.get('score')
+            adjust_reason = data.get('reason', '')
+            
+            if new_score is None:
+                return jsonify({'success': False, 'error': '参数不完整'}), 400
+            
+            result = test_library.adjust_question_score(
+                exam_id, student_number, question_number, float(new_score), adjust_reason
+            )
             exam_service.model.reload()  # 刷新缓存
             return jsonify(result)
         except Exception as e:

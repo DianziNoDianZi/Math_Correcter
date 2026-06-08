@@ -154,3 +154,117 @@ class ExamService:
                 'min_score': min(score_values) if score_values else 0
             }
         }
+    
+    def _validate_question(self, question: Dict[str, Any]) -> Optional[str]:
+        """验证题目格式，返回错误信息或None"""
+        # 验证题号
+        number = question.get('number')
+        if number is None:
+            return '题号不能为空'
+        try:
+            number = int(number)
+            if number <= 0:
+                return '题号必须是正整数'
+        except (ValueError, TypeError):
+            return '题号必须是正整数'
+        
+        # 验证内容
+        content = question.get('content', '').strip()
+        if not content:
+            return '题目内容不能为空'
+        
+        # 验证类型
+        valid_types = ['choice', 'true_false', 'fill_blank', 'subjective']
+        question_type = question.get('type', '').strip()
+        if question_type not in valid_types:
+            return f'题型必须是以下之一: {", ".join(valid_types)}'
+        
+        # 验证分值
+        score = question.get('score')
+        if score is None:
+            return '分值不能为空'
+        try:
+            score = float(score)
+            if score <= 0:
+                return '分值必须是正数'
+        except (ValueError, TypeError):
+            return '分值必须是正数'
+        
+        # 验证正确答案
+        correct_answer = question.get('correct_answer', '').strip()
+        if not correct_answer:
+            return '正确答案不能为空'
+        
+        # 根据类型验证答案格式
+        if question_type == 'choice':
+            if correct_answer.upper() not in ['A', 'B', 'C', 'D']:
+                return '选择题正确答案必须是 A/B/C/D'
+        elif question_type == 'true_false':
+            if correct_answer not in ['对', '错']:
+                return '判断题正确答案必须是 对/错'
+        
+        return None
+    
+    def batch_import_questions(self, exam_id: str, questions: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """批量导入题目
+        
+        Args:
+            exam_id: 考试ID
+            questions: 题目列表
+            
+        Returns:
+            导入结果，包含added_count, failed_count, errors
+        """
+        if not self.model.get_exam_by_id(exam_id):
+            return {'success': False, 'error': '考试未找到'}
+        
+        if not questions:
+            return {'success': False, 'error': '没有要导入的题目'}
+        
+        added_count = 0
+        failed_count = 0
+        errors = []
+        
+        for i, q in enumerate(questions):
+            # 验证题目
+            error = self._validate_question(q)
+            if error:
+                failed_count += 1
+                errors.append({
+                    'index': i,
+                    'number': q.get('number'),
+                    'error': error
+                })
+                continue
+            
+            # 添加题目
+            number = int(q['number'])
+            content = q['content'].strip()
+            correct_answer = q['correct_answer'].strip()
+            score = float(q['score'])
+            knowledge_points = q.get('knowledge_points', [])
+            question_type = q.get('type', 'choice').strip()
+            
+            if self.model.add_question(exam_id, {
+                'number': number,
+                'content': content,
+                'correct_answer': correct_answer,
+                'score': score,
+                'knowledge_points': knowledge_points,
+                'type': question_type
+            }):
+                added_count += 1
+            else:
+                failed_count += 1
+                errors.append({
+                    'index': i,
+                    'number': number,
+                    'error': '添加失败'
+                })
+        
+        return {
+            'success': True,
+            'added_count': added_count,
+            'failed_count': failed_count,
+            'errors': errors
+        }

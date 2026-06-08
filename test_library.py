@@ -628,22 +628,105 @@ def confirm_exam_scores(exam_id: str) -> Dict[str, Any]:
     
     return {'success': False, 'error': '考试不存在'}
 
-def adjust_score(exam_id: str, student_number: str, score: float) -> Dict[str, Any]:
+def adjust_score(exam_id: str, student_number: str, score: float, reason: str = '') -> Dict[str, Any]:
     """调整单条成绩"""
     metadata = load_exams_metadata()
+    from app.utils.helpers import get_timestamp
     for exam in metadata['exams']:
         if exam['id'] == exam_id:
             for s in exam['scores']:
                 if s.get('student_number') == student_number:
+                    old_score = s.get('total_score', 0)
                     s['total_score'] = score
                     s['adjusted'] = True
                     # 同步更新正确率
                     max_score = exam.get('total_score', s.get('max_score', 100))
                     if max_score > 0:
                         s['accuracy'] = (score / max_score) * 100
+                    # 记录调整历史
+                    if 'adjustment_history' not in s:
+                        s['adjustment_history'] = []
+                    s['adjustment_history'].append({
+                        'timestamp': get_timestamp(),
+                        'type': 'total',
+                        'old_score': old_score,
+                        'new_score': score,
+                        'reason': reason or '手动调整'
+                    })
                     save_exams_metadata(metadata)
                     invalidate_exam_cache(exam_id)  # 清除 AI 分析缓存
                     return {'success': True}
+            return {'success': False, 'error': '未找到该学生成绩'}
+    return {'success': False, 'error': '考试不存在'}
+
+def adjust_question_score(exam_id: str, student_number: str, question_number: int, new_score: float, reason: str = '') -> Dict[str, Any]:
+    """调整单题成绩"""
+    metadata = load_exams_metadata()
+    from app.utils.helpers import get_timestamp
+    
+    for exam in metadata['exams']:
+        if exam['id'] == exam_id:
+            # 找到该题目的原始分值
+            question_max_score = 0
+            for q in exam.get('questions', []):
+                if q.get('number') == question_number:
+                    question_max_score = q.get('score', 5)
+                    break
+            
+            if question_max_score == 0:
+                return {'success': False, 'error': '题目不存在'}
+            
+            # 找到该学生的成绩记录
+            for s in exam['scores']:
+                if s.get('student_number') == student_number:
+                    # 找到该题目
+                    old_score = 0
+                    for r in s.get('results', []):
+                        if r.get('number') == question_number:
+                            old_score = r.get('score', 0)
+                            r['score'] = new_score
+                            r['adjusted'] = True
+                            r['is_correct'] = new_score > 0
+                            break
+                    
+                    # 如果没有该题目的结果，创建一条
+                    if old_score == 0:
+                        for q in exam.get('questions', []):
+                            if q.get('number') == question_number:
+                                s.setdefault('results', []).append({
+                                    'number': question_number,
+                                    'answer': '',
+                                    'is_correct': new_score > 0,
+                                    'score': new_score,
+                                    'adjusted': True
+                                })
+                                break
+                    
+                    # 记录调整历史
+                    if 'adjustment_history' not in s:
+                        s['adjustment_history'] = []
+                    s['adjustment_history'].append({
+                        'timestamp': get_timestamp(),
+                        'question_number': question_number,
+                        'old_score': old_score,
+                        'new_score': new_score,
+                        'reason': reason
+                    })
+                    
+                    # 重新计算总分
+                    total_score = sum(r.get('score', 0) for r in s.get('results', []))
+                    s['total_score'] = total_score
+                    s['adjusted'] = True
+                    
+                    # 更新正确率
+                    max_score = exam.get('total_score', 100)
+                    if max_score > 0:
+                        s['accuracy'] = (total_score / max_score) * 100
+                    
+                    save_exams_metadata(metadata)
+                    invalidate_exam_cache(exam_id)
+                    return {'success': True, 'new_total': total_score}
+            
             return {'success': False, 'error': '未找到该学生成绩'}
     return {'success': False, 'error': '考试不存在'}
 
@@ -654,6 +737,7 @@ def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
         return {'success': False, 'error': '考试不存在'}
     
     question_stats = []
+    difficulty_summary = {'easy': 0, 'medium': 0, 'hard': 0}
     for q in exam['questions']:
         correct_count = 0
         for score in exam.get('scores', []):
@@ -662,13 +746,31 @@ def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
                     correct_count += 1
         
         total = len(exam.get('scores', []))
+        error_count = total - correct_count
+        error_rate = (error_count / total * 100) if total > 0 else 0
+        
+        # 计算难度等级
+        if error_rate < 30:
+            difficulty = 'easy'
+            difficulty_label = '简单'
+        elif error_rate <= 60:
+            difficulty = 'medium'
+            difficulty_label = '中等'
+        else:
+            difficulty = 'hard'
+            difficulty_label = '困难'
+        
+        difficulty_summary[difficulty] += 1
+        
         question_stats.append({
             'number': q['number'],
             'type': q['type'],
             'knowledge_points': q.get('knowledge_points', []),
             'correct_count': correct_count,
-            'error_count': total - correct_count,
-            'error_rate': ((total - correct_count) / total * 100) if total > 0 else 0
+            'error_count': error_count,
+            'error_rate': error_rate,
+            'difficulty': difficulty,
+            'difficulty_label': difficulty_label
         })
     
     knowledge_stats = {}
@@ -691,6 +793,7 @@ def get_exam_analysis(exam_id: str) -> Dict[str, Any]:
         'success': True,
         'exam': exam,
         'question_stats': question_stats,
+        'difficulty_summary': difficulty_summary,
         'knowledge_stats': knowledge_stats,
         'statistics': exam.get('statistics', {}),
         'ai_report': ai_generate_exam_analysis({

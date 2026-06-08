@@ -2,11 +2,17 @@
 班级管理路由
 """
 from flask import Blueprint, request, jsonify
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from app.services.exam_service import ExamService
 
 classes_bp = Blueprint('classes', __name__, url_prefix='/api/classes')
 
 def init_class_routes(class_service):
     """初始化班级路由"""
+    
+    exam_service = ExamService(Path(__file__).parent.parent.parent / 'data')
     
     @classes_bp.route('', methods=['GET'])
     def get_all_classes():
@@ -94,6 +100,164 @@ def init_class_routes(class_service):
             import test_library
             result = test_library.generate_ai_class_report(class_id)
             return jsonify(result)
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @classes_bp.route('/<class_id>/students/batch-delete', methods=['POST'])
+    def batch_delete_students(class_id):
+        """批量删除学生"""
+        data = request.get_json() or {}
+        student_numbers = data.get('student_numbers', [])
+        if not student_numbers:
+            return jsonify({'success': False, 'error': '没有学生数据'}), 400
+        
+        result = class_service.delete_students(class_id, student_numbers)
+        return jsonify(result)
+    
+    @classes_bp.route('/<source_class_id>/students/<student_number>/transfer', methods=['POST'])
+    def transfer_student(source_class_id, student_number):
+        """转班"""
+        data = request.get_json() or {}
+        target_class_id = data.get('target_class_id', '').strip()
+        
+        if not target_class_id:
+            return jsonify({'success': False, 'error': '目标班级不能为空'}), 400
+        
+        result = class_service.transfer_student(source_class_id, student_number, target_class_id)
+        return jsonify(result)
+    
+    @classes_bp.route('/<class_id>/students/<student_number>/history', methods=['GET'])
+    def get_student_history(class_id, student_number):
+        """获取学生历史成绩"""
+        try:
+            # 获取班级信息
+            class_info = class_service.get_class(class_id)
+            if not class_info:
+                return jsonify({'success': False, 'error': '班级未找到'}), 404
+            
+            # 获取学生信息
+            student = None
+            for s in class_info.get('students', []):
+                if s.get('student_number') == student_number:
+                    student = s
+                    break
+            
+            if not student:
+                return jsonify({'success': False, 'error': '学生未找到'}), 404
+            
+            student_name = student.get('name', '')
+            
+            # 获取所有考试
+            all_exams = exam_service.get_all_exams()
+            history = []
+            
+            for exam in all_exams:
+                scores = exam.get('scores', [])
+                # 找到该学生的成绩
+                student_score = None
+                for score in scores:
+                    if score.get('student_number') == student_number:
+                        student_score = score
+                        break
+                
+                if student_score:
+                    # 计算排名
+                    sorted_scores = sorted(scores, key=lambda x: x.get('total_score', 0), reverse=True)
+                    rank = 1
+                    for i, s in enumerate(sorted_scores):
+                        if s.get('student_number') == student_number:
+                            rank = i + 1
+                            break
+                    
+                    total_students = len(sorted_scores)
+                    
+                    history.append({
+                        'exam_id': exam.get('id'),
+                        'exam_name': exam.get('name', ''),
+                        'total_score': student_score.get('total_score', 0),
+                        'max_score': student_score.get('max_score', 100),
+                        'accuracy': student_score.get('accuracy', 0),
+                        'rank': rank,
+                        'total_students': total_students,
+                        'date': exam.get('created_at', '')[:10] if exam.get('created_at') else ''
+                    })
+            
+            # 按日期倒序排列
+            history.sort(key=lambda x: x.get('date', ''), reverse=True)
+            
+            return jsonify({
+                'success': True,
+                'student_number': student_number,
+                'student_name': student_name,
+                'history': history
+            })
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    @classes_bp.route('/compare', methods=['GET'])
+    def compare_classes():
+        """对比两个班级的成绩"""
+        try:
+            ids_param = request.args.get('ids', '')
+            if not ids_param:
+                return jsonify({'success': False, 'error': '需要提供班级ID'}), 400
+            
+            class_ids = [id.strip() for id in ids_param.split(',')]
+            if len(class_ids) != 2:
+                return jsonify({'success': False, 'error': '需要提供两个班级ID'}), 400
+            
+            all_exams = exam_service.get_all_exams()
+            result_classes = []
+            
+            for class_id in class_ids:
+                class_info = class_service.get_class(class_id)
+                if not class_info:
+                    continue
+                
+                # 获取该班级的所有已完成考试
+                class_exams = [e for e in all_exams if e.get('class_id') == class_id and e.get('status') == 'completed']
+                
+                all_scores = []
+                for exam in class_exams:
+                    all_scores.extend(exam.get('scores', []))
+                
+                if not all_scores:
+                    result_classes.append({
+                        'class_id': class_id,
+                        'class_name': class_info.get('name', ''),
+                        'statistics': {
+                            'average_score': 0,
+                            'pass_rate': 0,
+                            'highest_score': 0,
+                            'lowest_score': 0,
+                            'total_students': len(class_info.get('students', []))
+                        }
+                    })
+                    continue
+                
+                # 计算统计
+                total_students = len(all_scores)
+                score_values = [s.get('total_score', 0) for s in all_scores]
+                avg_score = sum(score_values) / total_students if total_students > 0 else 0
+                pass_count = sum(1 for s in all_scores if s.get('accuracy', 0) >= 60)
+                pass_rate = pass_count / total_students * 100 if total_students > 0 else 0
+                
+                result_classes.append({
+                    'class_id': class_id,
+                    'class_name': class_info.get('name', ''),
+                    'statistics': {
+                        'average_score': round(avg_score, 2),
+                        'pass_rate': round(pass_rate, 2),
+                        'highest_score': max(score_values) if score_values else 0,
+                        'lowest_score': min(score_values) if score_values else 0,
+                        'total_students': total_students
+                    }
+                })
+            
+            return jsonify({
+                'success': True,
+                'classes': result_classes
+            })
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)}), 500
     

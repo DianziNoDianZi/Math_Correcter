@@ -52,6 +52,11 @@ def main():
         """简化教师端页面"""
         return app.send_static_file('../templates/simplified_teacher.html')
     
+    @app.route('/answer_sheet_template.html')
+    def answer_sheet_template():
+        """答题卡模板下载"""
+        return app.send_static_file('../templates/answer_sheet_template.html')
+    
     # 运行服务器
     print(f"启动服务器在 {app_config.HOST}:{app_config.PORT}")
     print(f"环境: {env}")

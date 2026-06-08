@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>答题卡模板</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 1cm;
+        }
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: "SimSun", "宋体", serif;
+            max-width: 210mm;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        .header h1 {
+            font-size: 24px;
+            margin: 0 0 10px 0;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .info-item {
+            display: flex;
+            align-items: center;
+        }
+        .info-item span {
+            margin-right: 10px;
+        }
+        .info-item input {
+            border: none;
+            border-bottom: 1px solid #333;
+            width: 150px;
+            height: 25px;
+            font-size: 14px;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin: 15px 0 10px 0;
+            padding-left: 5px;
+            border-left: 3px solid #333;
+        }
+        .answer-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .question-block {
+            border: 1px solid #999;
+            padding: 8px;
+            page-break-inside: avoid;
+        }
+        .question-block .title {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .choice-row {
+            display: flex;
+            gap: 5px;
+            font-size: 11px;
+        }
+        .choice-option {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        .fill-blank-area {
+            border-bottom: 1px solid #333;
+            min-height: 30px;
+            margin-top: 5px;
+        }
+        .page-break {
+            page-break-after: always;
+        }
+        .footer {
+            margin-top: 30px;
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+        }
+        @media print {
+            body {
+                padding: 0;
+            }
+            .question-block {
+                border: 1px solid #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>答题卡</h1>
+        <div class="info-row">
+            <div class="info-item">
+                <span>姓名:</span>
+                <input type="text" placeholder="">
+            </div>
+            <div class="info-item">
+                <span>学号:</span>
+                <input type="text" placeholder="">
+            </div>
+            <div class="info-item">
+                <span>班级:</span>
+                <input type="text" placeholder="">
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">一、选择题 (共20题，每题5分)</div>
+    <div class="answer-grid">
+        <div class="question-block">
+            <div class="title">1</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">2</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">3</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">4</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">5</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">6</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">7</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">8</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">9</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">10</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">11</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">12</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">13</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">14</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">15</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">16</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">17</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">18</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">19</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">20</div>
+            <div class="choice-row">
+                <div class="choice-option">A</div>
+                <div class="choice-option">B</div>
+                <div class="choice-option">C</div>
+                <div class="choice-option">D</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title">二、判断题 (共10题，每题3分)</div>
+    <div class="answer-grid">
+        <div class="question-block">
+            <div class="title">21</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">22</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">23</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">24</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">25</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">26</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">27</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">28</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">29</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+        <div class="question-block">
+            <div class="title">30</div>
+            <div class="choice-row">
+                <div class="choice-option">对</div>
+                <div class="choice-option">错</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-break"></div>
+
+    <div class="section-title">三、填空题 (共10题，每题5分)</div>
+    <div class="answer-grid">
+        <div class="question-block">
+            <div class="title">31</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">32</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">33</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">34</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">35</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">36</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">37</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">38</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">39</div>
+            <div class="fill-blank-area"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">40</div>
+            <div class="fill-blank-area"></div>
+        </div>
+    </div>
+
+    <div class="section-title">四、解答题 (共4题，每题10分)</div>
+    <div class="answer-grid" style="grid-template-columns: repeat(2, 1fr);">
+        <div class="question-block">
+            <div class="title">41</div>
+            <div class="fill-blank-area" style="min-height: 80px;"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">42</div>
+            <div class="fill-blank-area" style="min-height: 80px;"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">43</div>
+            <div class="fill-blank-area" style="min-height: 80px;"></div>
+        </div>
+        <div class="question-block">
+            <div class="title">44</div>
+            <div class="fill-blank-area" style="min-height: 80px;"></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>答题卡 - 请使用黑色签字笔填写，选择题请在对应区域内涂黑</p>
+    </div>
+</body>
+</html>

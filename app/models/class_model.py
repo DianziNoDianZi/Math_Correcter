@@ -193,3 +193,69 @@ class ClassModel(BaseModel):
                         return {'success': False, 'error': '原密码错误'}
         
         return {'success': False, 'error': '学号不存在'}
+    
+    def delete_students(self, class_id: str, student_numbers: List[str]) -> Dict[str, Any]:
+        """批量删除学生"""
+        data = self._load()
+        
+        for cls in data['classes']:
+            if cls.get('id') == class_id:
+                original_count = len(cls.get('students', []))
+                cls['students'] = [s for s in cls.get('students', []) 
+                                   if s.get('student_number') not in student_numbers]
+                deleted_count = original_count - len(cls['students'])
+                
+                if deleted_count > 0:
+                    data['total_students'] = max(0, data.get('total_students', 0) - deleted_count)
+                    self._save()
+                    return {'success': True, 'deleted': deleted_count}
+        
+        return {'success': False, 'error': '班级未找到'}
+    
+    def transfer_student(self, source_class_id: str, student_number: str, 
+                         target_class_id: str) -> Dict[str, Any]:
+        """将学生从源班级转到目标班级"""
+        if source_class_id == target_class_id:
+            return {'success': False, 'error': '源班级和目标班级不能相同'}
+        
+        data = self._load()
+        
+        # 找到源班级和学生
+        source_class = None
+        student = None
+        
+        for cls in data['classes']:
+            if cls.get('id') == source_class_id:
+                source_class = cls
+                for s in cls.get('students', []):
+                    if s.get('student_number') == student_number:
+                        student = s
+                        break
+        
+        if not source_class or not student:
+            return {'success': False, 'error': '学生未找到'}
+        
+        # 找到目标班级
+        target_class = None
+        for cls in data['classes']:
+            if cls.get('id') == target_class_id:
+                target_class = cls
+                break
+        
+        if not target_class:
+            return {'success': False, 'error': '目标班级未找到'}
+        
+        # 检查目标班级是否已有同名学号学生
+        for s in target_class.get('students', []):
+            if s.get('student_number') == student_number:
+                return {'success': False, 'error': '目标班级已有同名学号学生'}
+        
+        # 从源班级删除学生
+        source_class['students'] = [s for s in source_class.get('students', []) 
+                                    if s.get('student_number') != student_number]
+        
+        # 添加到目标班级
+        target_class.setdefault('students', []).append(student)
+        
+        self._save()
+        return {'success': True, 'message': '学生已转入目标班级'}

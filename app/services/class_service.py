@@ -74,3 +74,12 @@ class ClassService:
     def get_student(self, student_number: str) -> Optional[Dict[str, Any]]:
         """获取学生信息"""
         return self.model.get_student_by_number(student_number)
+    
+    def delete_students(self, class_id: str, student_numbers: List[str]) -> Dict[str, Any]:
+        """批量删除学生"""
+        return self.model.delete_students(class_id, student_numbers)
+    
+    def transfer_student(self, source_class_id: str, student_number: str, 
+                         target_class_id: str) -> Dict[str, Any]:
+        """转班"""
+        return self.model.transfer_student(source_class_id, student_number, target_class_id)
