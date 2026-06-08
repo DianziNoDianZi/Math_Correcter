@@ -609,6 +609,40 @@
 
     <script>
         const API = window.location.origin;
+        
+        // 带超时的 fetch 工具函数
+        async function fetchWithTimeout(url, options = {}, timeout = 30000) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+            try {
+                const res = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(timeoutId);
+                return res;
+            } catch (e) {
+                clearTimeout(timeoutId);
+                if (e.name === 'AbortError') {
+                    throw new Error('请求超时，请检查网络连接');
+                }
+                throw e;
+            }
+        }
+        
+        // 带重试的 fetch 工具函数
+        async function fetchWithRetry(url, options = {}, maxRetries = 2, timeout = 30000) {
+            let lastError;
+            for (let i = 0; i <= maxRetries; i++) {
+                try {
+                    return await fetchWithTimeout(url, options, timeout);
+                } catch (e) {
+                    lastError = e;
+                    if (i < maxRetries) {
+                        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+                    }
+                }
+            }
+            throw lastError;
+        }
+        
         let currentSection = 'exam';  // 当前所在版块
         let selectedFiles = [], currentExam = null, currentClass = null, examQuestions = [], classes = [], adjustTarget = null;
         let editingExamId = null;  // 编辑模式下的考试ID
@@ -676,7 +710,63 @@
         function showLoading() { document.getElementById('loading-overlay').classList.remove('hidden'); }
         function hideLoading() { document.getElementById('loading-overlay').classList.add('hidden'); }
 
-        document.addEventListener('DOMContentLoaded', () => { loadState(); initDragDrop(); loadClasses(); loadExams(); });
+        document.addEventListener('DOMContentLoaded', () => { 
+            loadState(); 
+            initDragDrop(); 
+            loadClasses(); 
+            loadExams(); 
+            
+            // 键盘快捷键
+            document.addEventListener('keydown', (e) => {
+                // 忽略当用户在输入框中时
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+                
+                // Ctrl+Enter: 确认所有成绩
+                if (e.ctrlKey && e.key === 'Enter') {
+                    const reviewSection = document.getElementById('section-review');
+                    if (!reviewSection.classList.contains('hidden')) {
+                        confirmAllScores();
+                    }
+                }
+                
+                // Ctrl+E: 导出成绩
+                if (e.ctrlKey && e.key === 'e') {
+                    const reviewSection = document.getElementById('section-review');
+                    if (!reviewSection.classList.contains('hidden') && currentExam) {
+                        exportScores();
+                    }
+                }
+                
+                // PageUp: 上一页
+                if (e.key === 'PageUp') {
+                    const reviewSection = document.getElementById('section-review');
+                    if (!reviewSection.classList.contains('hidden')) {
+                        prevPage();
+                    }
+                }
+                
+                // PageDown: 下一页
+                if (e.key === 'PageDown') {
+                    const reviewSection = document.getElementById('section-review');
+                    if (!reviewSection.classList.contains('hidden')) {
+                        nextPage();
+                    }
+                }
+                
+                // Escape: 关闭模态框
+                if (e.key === 'Escape') {
+                    const modals = document.querySelectorAll('.modal-overlay:not(.hidden)');
+                    if (modals.length > 0) {
+                        modals.forEach(modal => modal.classList.add('hidden'));
+                    }
+                }
+                
+                // ?: 显示快捷键帮助
+                if (e.key === '?' && !e.shiftKey) {
+                    showToast('快捷键: Ctrl+Enter确认成绩 | Ctrl+E导出 | PageUp/PageDown翻页 | Esc关闭弹窗', 'info');
+                }
+            });
+        });
 
         // ========== 导航 ==========
         function showSection(section, shouldSave = true) {
@@ -763,20 +853,30 @@
             
             container.classList.add('hidden');
             loading.classList.remove('hidden');
+            content.innerHTML = '';
             
             try {
-                const res = await fetch(`${API}/api/classes/${currentClass.id}/ai-report`);
+                const res = await fetchWithRetry(`${API}/api/classes/${currentClass.id}/ai-report`, {}, 2, 30000);
                 const data = await res.json();
                 loading.classList.add('hidden');
                 if (data.success && data.ai_report) {
                     container.classList.remove('hidden');
                     content.innerHTML = markdownToHtml(data.ai_report);
+                } else if (data.error === 'AI_REPORT_PENDING') {
+                    container.classList.add('hidden');
+                    loading.classList.remove('hidden');
+                    loading.querySelector('p').textContent = 'AI 分析正在生成中，请稍候...';
+                    setTimeout(() => {
+                        if (!document.getElementById('class-ai-report-loading').classList.contains('hidden')) {
+                            loadClassAiReport();
+                        }
+                    }, 30000);
                 } else {
                     showToast('AI 分析不可用，请确认已配置文本模型', 'warning');
                 }
             } catch (e) {
                 loading.classList.add('hidden');
-                showToast('AI 分析请求失败: ' + e.message, 'error');
+                showToast('AI 分析请求失败: ' + e.message + '，可点击"查看AI报告"按钮重试', 'error', 5000);
             }
         }
 
@@ -1037,32 +1137,60 @@
         function renderExamList(exams) {
             const container = document.getElementById('exam-list');
             if (exams.length === 0) { container.innerHTML = '<div class="text-center py-12"><p class="text-gray-500">暂无考试，点击上方按钮创建</p></div>'; return; }
-            const statusMap = { 'draft': ['草稿', 'bg-gray-100 text-gray-700'], 'ready': ['就绪', 'bg-blue-100 text-blue-700'], 'scanning': ['扫描中', 'bg-yellow-100 text-yellow-700'], 'reviewing': ['待审核', 'bg-orange-100 text-orange-700'], 'completed': ['已完成', 'bg-green-100 text-green-700'] };
+            const statusMap = { 
+                'draft': ['草稿', 'bg-gray-100 text-gray-700', 'bg-gray-50 border-gray-200'], 
+                'ready': ['就绪', 'bg-blue-100 text-blue-700', 'bg-blue-50 border-blue-200'], 
+                'scanning': ['扫描中', 'bg-yellow-100 text-yellow-700', 'bg-yellow-50 border-yellow-200'], 
+                'reviewing': ['待审核', 'bg-orange-100 text-orange-700', 'bg-orange-50 border-orange-200'], 
+                'completed': ['已完成', 'bg-green-100 text-green-700', 'bg-green-50 border-green-200'] 
+            };
+            const statusTips = {
+                'draft': '📝 添加题目后，设为"就绪"状态即可开始扫描',
+                'ready': '📷 选择此考试，上传答题卡进行扫描',
+                'scanning': '⏳ 扫描进行中，请稍候...',
+                'reviewing': '✅ 扫描完成，审核调整成绩后确认',
+                'completed': '📊 成绩已确认，可查看学情分析'
+            };
             container.innerHTML = exams.map(e => {
-                const [text, colorClass] = statusMap[e.status] || ['未知', 'bg-gray-100 text-gray-700'];
+                const [text, colorClass, tipClass] = statusMap[e.status] || ['未知', 'bg-gray-100 text-gray-700', 'bg-gray-50 border-gray-200'];
+                const tip = statusTips[e.status] || '';
                 const cls = classes.find(c => c.id === e.class_id);
                 const qs = e.questions || [];
+                const hasQuestions = qs.length > 0;
                 return `
                     <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
                         <div class="flex justify-between items-start mb-2">
                             <div class="flex-1">
                                 <h3 class="font-semibold text-lg">${e.name}</h3>
                                 <p class="text-sm text-gray-600">${cls?.name || '未分配班级'} | ${qs.length}题 | 总分${e.total_score}</p>
-                                ${qs.length > 0 ? `<div class="mt-2 flex flex-wrap gap-1">${qs.map(q => `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">第${q.number || '?'}题 ${q.type} ${q.score}分</span>`).join('')}</div>` : ''}
+                                ${qs.length > 0 ? `<div class="mt-2 flex flex-wrap gap-1">${qs.slice(0, 5).map(q => `<span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">第${q.number || '?'}题 ${q.type} ${q.score}分</span>`).join('')}${qs.length > 5 ? `<span class="text-xs text-gray-400">...等${qs.length}题</span>` : ''}</div>` : '<div class="mt-2 text-xs text-orange-500">⚠️ 尚未添加题目</div>'}
                             </div>
                             <span class="px-3 py-1 rounded-full text-sm ${colorClass}">${text}</span>
                         </div>
+                        ${tip ? `<div class="text-xs ${tipClass} border rounded p-2 mb-2">${tip}</div>` : ''}
                         <div class="flex gap-2 mt-3 flex-wrap">
-                            ${e.status === 'draft' ? `<button onclick="showEditExamModal('${e.id}')" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">编辑</button>` : ''}
-                            ${e.status === 'ready' ? `<button onclick="goToScan('${e.id}')" class="text-sm text-green-600 hover:text-green-800 font-medium">开始扫描</button>` : ''}
-                            ${e.status === 'reviewing' ? `<button onclick="goToReview('${e.id}')" class="text-sm text-orange-600 hover:text-orange-800 font-medium">去审核</button>` : ''}
-                            ${e.status === 'completed' ? `<button onclick="goToAnalysis('${e.id}')" class="text-sm text-blue-600 hover:text-blue-800 font-medium">查看分析</button>` : ''}
+                            ${e.status === 'draft' ? `<button onclick="showEditExamModal('${e.id}')" class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">${hasQuestions ? '编辑题目' : '添加题目'}</button>${hasQuestions ? `<button onclick="setExamReady('${e.id}')" class="text-sm text-green-600 hover:text-green-800 font-medium">设为就绪</button>` : ''}` : ''}
+                            ${e.status === 'ready' ? `<button onclick="goToScan('${e.id}')" class="text-sm text-green-600 hover:text-green-800 font-medium">📷 开始扫描</button>` : ''}
+                            ${e.status === 'reviewing' ? `<button onclick="goToReview('${e.id}')" class="text-sm text-orange-600 hover:text-orange-800 font-medium">🔍 去审核</button>` : ''}
+                            ${e.status === 'completed' ? `<button onclick="goToAnalysis('${e.id}')" class="text-sm text-blue-600 hover:text-blue-800 font-medium">📊 查看分析</button>` : ''}
+                            ${e.status === 'scanning' ? `<span class="text-sm text-yellow-600">⏳ 扫描中...</span>` : ''}
                             <button onclick="duplicateExam('${e.id}', '${e.name}')" class="text-sm text-gray-600 hover:text-gray-800 font-medium">复制</button>
                             <button onclick="deleteExamConfirm('${e.id}', '${e.name}')" class="text-sm text-red-600 hover:text-red-800 font-medium">删除</button>
                         </div>
                     </div>
                 `;
             }).join('');
+        }
+        
+        async function setExamReady(examId) {
+            showConfirm('设为就绪', '设为就绪后将开始使用答题卡扫描功能，确定吗？', async () => {
+                try {
+                    const res = await fetch(`${API}/api/exams/${examId}/ready`, { method: 'POST' });
+                    const data = await res.json();
+                    if (data.success) { showToast('已设为就绪状态', 'success'); loadExams(); }
+                    else { showToast('操作失败: ' + (data.error || '未知错误'), 'error'); }
+                } catch (e) { showToast('操作失败', 'error'); }
+            });
         }
 
         function showCreateExamModal() {
@@ -1502,7 +1630,29 @@
         function clearFiles() { selectedFiles = []; document.getElementById('file-input').value = ''; updateFileList(); }
 
         async function startScan() {
-            if (!currentExam || selectedFiles.length === 0) return;
+            if (!currentExam || selectedFiles.length === 0) {
+                showToast('请先选择考试和答题卡图片', 'warning');
+                return;
+            }
+            
+            // 扫描前验证
+            const questionCount = currentExam.questions?.length || 0;
+            if (questionCount === 0) {
+                showToast('该考试没有题目，无法扫描。请先添加题目。', 'warning');
+                return;
+            }
+            
+            // 显示扫描前确认
+            const warningMsg = selectedFiles.length < questionCount 
+                ? `⚠️ 注意：您选择了 ${selectedFiles.length} 张答题卡，但考试有 ${questionCount} 道题。\n\n是否继续扫描？`
+                : `📷 将扫描 ${selectedFiles.length} 张答题卡，考试共 ${questionCount} 道题。\n\n确认开始扫描吗？`;
+            
+            showConfirm('确认扫描', warningMsg, async () => {
+                doStartScan();
+            });
+        }
+        
+        async function doStartScan() {
             showModal('modal-scanning');
             document.getElementById('scan-bar').style.width = '0%';
             document.getElementById('scan-status-text').textContent = '正在上传并识别...';
@@ -1515,7 +1665,16 @@
                 document.getElementById('scan-bar').style.width = '100%'; document.getElementById('scan-status-text').textContent = '扫描完成';
                 setTimeout(() => {
                     closeModal('modal-scanning');
-                    if (data.success) { showToast(`扫描完成！共 ${data.total_scanned} 张，匹配 ${data.matched} 张，未匹配 ${data.unmatched} 张`, 'success'); clearFiles(); showSection('review'); document.getElementById('review-exam-select').value = currentExam.id; loadReviewData(); }
+                    if (data.success) { 
+                        let msg = `扫描完成！共 ${data.total_scanned} 张`;
+                        if (data.matched > 0) msg += `，匹配 ${data.matched} 张`;
+                        if (data.unmatched > 0) msg += `，未匹配 ${data.unmatched} 张`;
+                        showToast(msg, 'success'); 
+                        clearFiles(); 
+                        showSection('review'); 
+                        document.getElementById('review-exam-select').value = currentExam.id; 
+                        loadReviewData(); 
+                    }
                     else { showToast('扫描失败: ' + (data.error || '未知错误'), 'error'); }
                 }, 500);
             } catch (e) { clearInterval(interval); closeModal('modal-scanning'); showToast('扫描失败，请检查网络连接', 'error'); }
@@ -1989,8 +2148,20 @@
         async function loadAnalysisData() {
             const examId = document.getElementById('analysis-exam-select').value;
             if (!examId) { document.getElementById('analysis-content').classList.add('hidden'); saveState(); return; }
-            try { const res = await fetch(`${API}/api/exams/${examId}/analysis`); const data = await res.json(); if (data.success) { saveState(); renderAnalysisContent(data); } else { showToast('加载分析数据失败', 'error'); } }
-            catch (e) { console.error('加载分析数据失败:', e); showToast('加载分析数据失败', 'error'); }
+            try { 
+                const res = await fetchWithRetry(`${API}/api/exams/${examId}/analysis`, {}, 2, 30000); 
+                const data = await res.json(); 
+                if (data.success) { 
+                    saveState(); 
+                    renderAnalysisContent(data); 
+                } else { 
+                    showToast('加载分析数据失败: ' + (data.error || '未知错误'), 'error'); 
+                } 
+            }
+            catch (e) { 
+                console.error('加载分析数据失败:', e); 
+                showToast('加载分析数据失败: ' + e.message + '，请检查网络后重试', 'error', 5000); 
+            }
         }
 
         function renderAnalysisContent(data) {
