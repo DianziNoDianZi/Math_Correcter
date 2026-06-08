@@ -135,6 +135,16 @@ def ensure_defaults():
     if changed:
         save_config(cfg)
 
+def ensure_ascii(s, field_name):
+    """确保字符串只包含ASCII字符"""
+    if not s:
+        raise ValueError(f"{field_name} 不能为空")
+    try:
+        s.encode('ascii')
+    except UnicodeEncodeError:
+        raise ValueError(f"{field_name} 只能包含英文字母、数字和符号（ASCII字符），请检查是否有中文或特殊符号。")
+
+
 # 初始化加载，确保基础字段存在
 _reload_config()
 ensure_defaults()

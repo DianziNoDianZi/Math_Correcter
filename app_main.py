@@ -4,13 +4,14 @@
 import os
 import sys
 from pathlib import Path
-from flask import send_from_directory
+from flask import send_from_directory, redirect, url_for
 
 # 添加项目根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from app import create_app
 from app.config import config, Config
+from app.routes.admin_routes import admin_bp
 
 def main():
     """主函数"""
@@ -26,6 +27,9 @@ def main():
         'SECRET_KEY': app_config.SECRET_KEY,
         'DEBUG': app_config.DEBUG
     })
+    
+    # 注册后台管理蓝图
+    app.register_blueprint(admin_bp)
     
     # 获取模板目录路径
     templates_dir = str(Path(__file__).parent / 'templates')
@@ -43,8 +47,8 @@ def main():
     
     @app.route('/admin')
     def admin_page():
-        """管理后台页面"""
-        return send_from_directory(templates_dir, 'admin.html')
+        """管理后台页面 - 重定向到登录页"""
+        return redirect(url_for('admin.admin_dashboard'))
     
     @app.route('/answer_sheet_template.html')
     def answer_sheet_template():
@@ -55,6 +59,8 @@ def main():
     print(f"启动服务器在 {app_config.HOST}:{app_config.PORT}")
     print(f"环境: {env}")
     print(f"调试模式: {app_config.DEBUG}")
+    print(f"后台管理路径: /admin")
+    print(f"默认管理员账号: admin / {os.environ.get('ADMIN_PASS', 'changeme')}")
     
     app.run(
         host=app_config.HOST,
