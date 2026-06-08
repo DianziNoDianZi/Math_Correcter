@@ -4,8 +4,9 @@
 import os
 import sys
 from pathlib import Path
+from flask import send_from_directory
 
-# 添加项目根目录到Python路径
+# 添加项目根目录到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent))
 
 from app import create_app
@@ -26,36 +27,29 @@ def main():
         'DEBUG': app_config.DEBUG
     })
     
+    # 获取模板目录路径
+    templates_dir = str(Path(__file__).parent / 'templates')
+    
     # 添加页面路由
     @app.route('/')
     def home():
         """首页"""
-        return app.send_static_file('../templates/home.html')
-    
-    @app.route('/student')
-    def student_page():
-        """学生端页面"""
-        return app.send_static_file('../templates/student.html')
+        return send_from_directory(templates_dir, 'index.html')
     
     @app.route('/teacher')
     def teacher_page():
         """教师端页面"""
-        return app.send_static_file('../templates/teacher.html')
+        return send_from_directory(templates_dir, 'teacher.html')
     
     @app.route('/admin')
     def admin_page():
         """管理后台页面"""
-        return app.send_static_file('../templates/admin.html')
-    
-    @app.route('/simplified')
-    def simplified_page():
-        """简化教师端页面"""
-        return app.send_static_file('../templates/simplified_teacher.html')
+        return send_from_directory(templates_dir, 'admin.html')
     
     @app.route('/answer_sheet_template.html')
     def answer_sheet_template():
         """答题卡模板下载"""
-        return app.send_static_file('../templates/answer_sheet_template.html')
+        return send_from_directory(templates_dir, 'answer_sheet_template.html')
     
     # 运行服务器
     print(f"启动服务器在 {app_config.HOST}:{app_config.PORT}")

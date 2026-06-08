@@ -64,6 +64,166 @@
       ],
       "scores": [],
       "statistics": {}
+    },
+    {
+      "id": "5e55f89e-835d-4d3f-acb7-548bd93c3160",
+      "name": "单元测试 1",
+      "class_id": "6e414d21-663d-48ba-939a-778cc22977af",
+      "grade": "高一",
+      "total_score": 100.0,
+      "created_at": "2026-06-08T04:27:48.556578",
+      "status": "completed",
+      "questions": [
+        {
+          "number": 1,
+          "type": "choice",
+          "content": "1 + 1 = ?",
+          "correct_answer": "B",
+          "score": 10.0,
+          "knowledge_points": [
+            "基础运算"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 2,
+          "type": "choice",
+          "content": "2 × 3 = ?",
+          "correct_answer": "D",
+          "score": 10.0,
+          "knowledge_points": [
+            "乘法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 3,
+          "type": "fill_blank",
+          "content": "5 - 2 = ?",
+          "correct_answer": "3",
+          "score": 5.0,
+          "knowledge_points": [
+            "减法"
+          ],
+          "difficulty": "medium"
+        },
+        {
+          "number": 4,
+          "type": "fill_blank",
+          "content": "计算：10 ÷ 2 = ?",
+          "correct_answer": "5",
+          "score": 5.0,
+          "knowledge_points": [
+            "除法"
+          ],
+          "difficulty": "medium"
+        }
+      ],
+      "scores": [
+        {
+          "student_number": "2024001",
+          "student_name": "张三",
+          "score": 90,
+          "status": "matched",
+          "answers": {
+            "1": "B",
+            "2": "D",
+            "3": "3",
+            "4": "5"
+          },
+          "question_scores": {
+            "1": 10,
+            "2": 10,
+            "3": 5,
+            "4": 5
+          },
+          "total_score": 95,
+          "adjusted": true,
+          "accuracy": 95.0,
+          "adjustment_history": [
+            {
+              "timestamp": "2026-06-08T04:27:48.560029",
+              "type": "total",
+              "old_score": 0,
+              "new_score": 95,
+              "reason": "题目难度较高，统一加分"
+            }
+          ]
+        },
+        {
+          "student_number": "2024002",
+          "student_name": "李四",
+          "score": 85,
+          "status": "matched",
+          "answers": {
+            "1": "B",
+            "2": "C",
+            "3": "3",
+            "4": "5"
+          },
+          "question_scores": {
+            "1": 10,
+            "2": 0,
+            "3": 5,
+            "4": 5
+          }
+        },
+        {
+          "student_number": "2024003",
+          "student_name": "王五",
+          "score": 95,
+          "status": "matched",
+          "answers": {
+            "1": "B",
+            "2": "D",
+            "3": "3",
+            "4": "5"
+          },
+          "question_scores": {
+            "1": 10,
+            "2": 10,
+            "3": 5,
+            "4": 5
+          }
+        },
+        {
+          "student_number": "2024004",
+          "student_name": "赵六",
+          "score": 70,
+          "status": "matched",
+          "answers": {
+            "1": "A",
+            "2": "D",
+            "3": "2",
+            "4": "5"
+          },
+          "question_scores": {
+            "1": 0,
+            "2": 10,
+            "3": 0,
+            "4": 5
+          }
+        },
+        {
+          "student_number": "2024005",
+          "student_name": "钱七",
+          "score": 88,
+          "status": "matched",
+          "answers": {
+            "1": "B",
+            "2": "D",
+            "3": "3",
+            "4": "4"
+          },
+          "question_scores": {
+            "1": 10,
+            "2": 10,
+            "3": 5,
+            "4": 0
+          }
+        }
+      ],
+      "statistics": {}
     }
   ],
   "total_exams": 2

@@ -1,4 +1,14 @@
 {
-  "classes": [],
+  "classes": [
+    {
+      "id": "84066687-3b71-43b6-bba0-e275a428fe44",
+      "name": "测试班级 1",
+      "grade": "高一",
+      "teacher_name": "王老师",
+      "created_at": "2026-06-08T04:27:48.555611",
+      "students": [],
+      "assigned_papers": []
+    }
+  ],
   "total_students": 0
 }
